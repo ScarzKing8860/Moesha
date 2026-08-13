@@ -185,9 +185,16 @@ function scoreHandler(handler, text) {
   for (const k of handler.keywords) {
     if (!k) continue;
     if (typeof k === "string") {
-      if (lower.includes(k)) score += 1;
+      const kw = k.toLowerCase();
+      // exact word boundary match gets a higher boost
+      const wordRe = new RegExp("\\b" + kw.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&") + "\\b");
+      if (wordRe.test(lower)) {
+        score += 2;
+      } else if (lower.includes(kw)) {
+        score += 1;
+      }
     } else if (k instanceof RegExp) {
-      if (k.test(lower)) score += 1;
+      if (k.test(lower)) score += 2;
     }
   }
   return score + (handler.priority || 0);
@@ -249,7 +256,7 @@ registerHandler("translate", { keywords: [/^translate\b/i, /^traduce\b/i], fn: (
   }
   return null;
 } });
-registerHandler("greeting", { keywords: ["hi", "hello", "hola", "hey", "buenos días", "buenas"], fn: (text) => ({ text: /\b(hola|buenas|buenos)/i.test(text) ? "Hola, soy Moesha. ¿En qué te puedo ayudar hoy?" : "Hi, I'm Moesha! What can I help you with today?", tag: "Welcome", lang: /\b(hola|buenas|buenos)/i.test(text) ? "es-ES" : "en-US" }) });
+registerHandler("greeting", { keywords: ["hi", "hello", "hola", "hey", "buenos días", "buenas"], fn: (text) => ({ text: /\b(hola|buenas|buenos)/i.test(text) ? "Hola, soy Moesha. ¿En qué te puedo ayudar hoy?" : "Hi, I'm Moesha! What can I help you with today?", tag: "Welcome", lang: /\b(hola|buenas|buenos)/i.test(text) ? "es-ES" : "en-US" }), priority: 3 });
 registerHandler("fallback", { keywords: [], fn: (text) => ({ text: "This is a front-end demo; I provide general guidance. Please give a specific topic or error to get a focused answer.", tag: "Multi-domain helper", lang: "en-US" }) });
 
 function setAlarmFromRequest(userText) {
