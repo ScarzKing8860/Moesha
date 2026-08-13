@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!-- SECTION: Meta -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moesha AI Assistant Demo</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" type="image/x-icon" href="img/Moesha.png" />
+  </head>
+  <body class="gradient-mesh grain">
+    <div class="app-shell">
+      <!-- SECTION: Header -->
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-mark shadow-soft">
+            <img src="img/Moesha.png" class="brand-mark-image" alt="Moesha avatar" />
+          </div>
+          <div class="brand-copy">
+            <h1 class="brand-title">Moesha AI Assistant</h1>
+            <p class="brand-subtitle">Ask about code, health, history, weather, ideas, writing, finance, and more.</p>
+          </div>
+        </div>
+        <div class="header-meta">
+          <div class="status-pill" aria-live="polite">
+            <span class="status-indicator"></span>
+            <span class="status-text">Model: Frontend Helper</span>
+          </div>
+          <div class="status-pill" id="elevenlabs-status" aria-live="polite">
+            <span class="status-text">ElevenLabs: off</span>
+          </div>
+          <label class="status-pill voice-toggle" for="voice-toggle">
+            <input type="checkbox" id="voice-toggle" />
+            <span class="status-text">Voice</span>
+          </label>
+        </div>
+      </header>
+
+      <!-- SECTION: Main Chat -->
+      <main class="chat-layout" aria-label="AI assistant chat interface">
+        <section class="chat-panel gradient-border shadow-soft">
+          <header class="chat-header">
+            <div>
+              <h2 class="chat-title">Chat</h2>
+              <p class="chat-tagline">
+                Describe what you need help with. This assistant can handle coding (HTML, CSS, JavaScript, Python, C++, Java), health tips, history, weather, idea brainstorming, writing help, restating text, finances, and even candle/chart patterns.
+              </p>
+            </div>
+            <button class="chip chip-secondary" type="button" id="sample-question-btn">
+              Insert sample question
+            </button>
+          </header>
+
+          <!-- Chat transcript -->
+             <section class="chat-window" id="chat-window" aria-live="polite" aria-label="Conversation">
+             <article class="message message-assistant" data-initial-message="true">
+                <div class="message-avatar" aria-hidden="true">
+                  <img class="avatar-image" src="img/Moesha.png" alt="" aria-hidden="true" onerror="this.style.display='none'" />
+                </div>
+               <div class="message-bubble">
+                 <div class="message-meta">
+                   <span class="message-role">Assistant</span>
+                   <span class="message-tag">Multi-domain helper</span>
+                 </div>
+                 <p class="message-text">
+                   Ask me about code, health, history, weather, brainstorming ideas, writing, restating text, finances, or even trading topics like candle and chart patterns. I’ll give you clear, structured guidance—but always double-check important decisions with a professional or trusted source.
+                 </p>
+               </div>
+             </article>
+           </section>
+
+          <!-- SECTION: Composer -->
+          <form class="chat-composer" id="chat-form">
+            <label class="sr-only" for="user-input">Ask a coding question</label>
+            <div class="composer-inner shadow-inner">
+               <textarea
+                 id="user-input"
+                 class="composer-input"
+                 name="message"
+                 rows="2"
+                 placeholder="Ask a question… coding, health, history, weather, ideas, writing, finance, charts, and more"
+                 required
+               ></textarea>
+               <div class="composer-actions">
+                  <button class="chip chip-ghost" type="button" id="quick-html">HTML</button>
+                  <button class="chip chip-ghost" type="button" id="quick-css">CSS</button>
+                  <button class="chip chip-ghost" type="button" id="quick-js">JS</button>
+                  <button class="chip chip-ghost" type="button" id="quick-health">Health</button>
+                  <button class="chip chip-ghost" type="button" id="quick-finance">Finance</button>
+                  <button class="chip chip-ghost" type="button" id="quick-ideas">Ideas</button>
+                  <button class="chip chip-ghost" type="button" id="mic-btn" aria-label="Start voice input">🎤</button>
+                  <button class="chip chip-secondary" type="button" id="new-chat-btn">New chat</button>
+                  <button class="btn-primary" type="submit" id="send-btn">
+                    <span>Send</span>
+                   <span class="btn-icon" aria-hidden="true">➤</span>
+                 </button>
+               </div>
+            </div>
+          </form>
+        </section>
+
+        <!-- SECTION: Helper Sidebar -->
+        <aside class="helper-panel shadow-soft" aria-label="Tips and examples">
+          <h2 class="helper-title">Tips for better answers</h2>
+          <ul class="helper-list">
+            <li>Say which language or framework you’re using.</li>
+            <li>Share the exact error message if you have one.</li>
+            <li>Explain what you expected to happen vs. what happened.</li>
+            <li>Include small, focused code snippets instead of whole files.</li>
+          </ul>
+
+          <h3 class="helper-subtitle">Example questions</h3>
+          <ul class="example-list" id="example-list">
+            <li>
+              <button type="button" class="example-chip" data-example="Why is my CSS flexbox layout not centering this div both vertically and horizontally?">
+                Centering with flexbox
+              </button>
+            </li>
+            <li>
+              <button type="button" class="example-chip" data-example="My JavaScript click event listener works on desktop but not on mobile. What should I check?">
+                JS click not working
+              </button>
+            </li>
+            <li>
+              <button type="button" class="example-chip" data-example="I get 'Unexpected token' in the browser console when I add an arrow function. Can you help me fix it?">
+                Unexpected token error
+              </button>
+            </li>
+            <li>
+              <button type="button" class="example-chip" data-example="Give me three simple daily health tips I can start this week.">
+                Health tips
+              </button>
+            </li>
+            <li>
+              <button type="button" class="example-chip" data-example="Tell me an interesting history fact about ancient civilizations.">
+                History fact
+              </button>
+            </li>
+            <li>
+              <button type="button" class="example-chip" data-example="How can I start a basic monthly budget if I'm new to managing money?">
+                Finance basics
+              </button>
+            </li>
+            <li>
+              <button type="button" class="example-chip" data-example="Can you help me brainstorm three creative project ideas I could build this month?">
+                Idea brainstorming
+              </button>
+            </li>
+            <li>
+              <button type="button" class="example-chip" data-example="Can you help me rewrite this paragraph to sound clearer and more professional?">
+                Restate my writing
+              </button>
+            </li>
+            <li>
+              <button type="button" class="example-chip" data-example="Explain what a candlestick chart is and how traders use basic patterns.">
+                Candle & chart patterns
+              </button>
+            </li>
+          </ul>
+
+          <div class="planner-panel">
+            <div class="planner-panel-header">
+              <h3 class="helper-subtitle">Planner</h3>
+              <button type="button" class="chip chip-ghost" id="clear-planner-btn">
+                Clear planner
+              </button>
+            </div>
+            <ul class="planner-list" id="planner-list">
+              <li class="planner-empty">No notes or reminders yet.</li>
+            </ul>
+          </div>
+        </aside>
+      </main>
+
+      <!-- SECTION: Footer -->
+      <footer class="app-footer">
+        <p class="footer-text">
+          This is a front-end demo assistant. Responses are canned examples—always double-check important code, health, finance, and trading decisions with reliable sources or professionals.
+        </p>
+      </footer>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
