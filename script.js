@@ -197,10 +197,24 @@ function scoreHandler(handler, text) {
       if (k.test(lower)) score += 2;
     }
   }
-  return score + (handler.priority || 0);
+  // Priority should be a small tie-breaker, not overpower keyword matches
+  return score + (handler.priority || 0) * 0.01;
 }
 
 function dispatchToHandlers(text) {
+  const trimmed = (text || "").toLowerCase().trim();
+
+  // If user explicitly uses translate/traduce command, prefer translate handler
+  if (/^(translate|traduce)\b/i.test(trimmed)) {
+    const trans = handlers.find(h => h.name === 'translate');
+    if (trans) return { ...trans.fn(text), handler: 'translate', confidence: 1 };
+  }
+
+  const exactGreetingRe = /^(hi|hello|hola|hey|buenos d[ií]as|buenas|buenas tardes|buenas noches)\b[!,.]?$/i;
+  if (exactGreetingRe.test(trimmed)) {
+    const greet = handlers.find(h => h.name === 'greeting');
+    if (greet) return { ...greet.fn(text), handler: 'greeting', confidence: 1 };
+  }
   // Planner has its own detection; check it first so planner commands take precedence
   const plannerHandler = handlers.find((h) => h.name === "planner");
   if (plannerHandler) {
@@ -208,9 +222,9 @@ function dispatchToHandlers(text) {
     if (plannerRes) return { ...plannerRes, handler: "planner", confidence: 1 };
   }
 
-  // Score remaining handlers by keyword matches
+  // Score remaining handlers by keyword matches (exclude greeting from general scoring)
   const scored = handlers
-    .filter((h) => h.name !== "planner")
+    .filter((h) => h.name !== "planner" && h.name !== "greeting")
     .map((h) => ({ handler: h, score: scoreHandler(h, text) }))
     .sort((a, b) => b.score - a.score);
 
@@ -229,7 +243,7 @@ function dispatchToHandlers(text) {
 
 // Register basic handlers (uses existing helper functions where possible)
 registerHandler("planner", { keywords: ["note", "remind", "timer", "alarm", "reminder", "schedule", "appointment"], fn: handlePlannerIntent, priority: 2 });
-registerHandler("weather", { keywords: ["weather", "forecast", "temperature", "rain", "sunny", "cloudy"], fn: (text) => {
+registerHandler("weather", { keywords: ["weather", "forecast", "temperature", "rain", "sunny", "cloudy", "clima", "tiempo"], fn: (text) => {
   const cityMatch = text.toLowerCase().match(/(?:in|for|at)\s+([a-zA-Z ]+)/i);
   const city = cityMatch ? cityMatch[1].trim() : "your area";
   return { text: getWeatherSummary(city), tag: "Weather helper", lang: "en-US" };
@@ -243,9 +257,9 @@ registerHandler("coding", { keywords: ["html", "css", "flex", "grid", "javascrip
 registerHandler("health", { keywords: ["health", "diet", "exercise", "workout", "sleep", "salud", "ejercicio"], fn: (text) => {
   return { text: "General wellness tips: consistent sleep, balanced meals, movement, and stress management. For personalized advice, consult a professional.", tag: "Health helper", lang: /\b(es|spanish|esp)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" };
 } });
-registerHandler("finance", { keywords: ["finance", "budget", "money", "saving", "debt"], fn: (text) => ({ text: "Track income/expenses for a month, set a simple budget, and prioritize essentials.", tag: "Finance helper", lang: "en-US" }) });
+registerHandler("finance", { keywords: ["finance", "budget", "money", "saving", "debt", "dinero", "ahorro", "ahorrar", "presupuesto"], fn: (text) => ({ text: "Track income/expenses for a month, set a simple budget, and prioritize essentials.", tag: "Finance helper", lang: /\b(dinero|ahorro|presupuesto|guardar)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" }) });
 registerHandler("ideas", { keywords: ["idea", "brainstorm", "project"], fn: (text) => ({ text: "Write ideas quickly without judging, group similar ones, pick 1–2, and break into tiny next steps.", tag: "Ideas helper", lang: "en-US" }) });
-registerHandler("translate", { keywords: [/^translate\b/i, /^traduce\b/i], fn: (text) => {
+registerHandler("translate", { keywords: [/^translate\b/i, /^traduce\b/i, "translate", "traduce", "translate to spanish", "traduce a español", "español", "spanish"], fn: (text) => {
   if (/^translate\b/i.test(text)) {
     const phrase = text.slice(10).trim();
     return { text: phrase ? `Approximate translation: \"${phrase}\" → (approx.)` : "Tell me what to translate.", tag: "Translation helper", lang: "en-US" };
@@ -256,7 +270,7 @@ registerHandler("translate", { keywords: [/^translate\b/i, /^traduce\b/i], fn: (
   }
   return null;
 } });
-registerHandler("greeting", { keywords: ["hi", "hello", "hola", "hey", "buenos días", "buenas"], fn: (text) => ({ text: /\b(hola|buenas|buenos)/i.test(text) ? "Hola, soy Moesha. ¿En qué te puedo ayudar hoy?" : "Hi, I'm Moesha! What can I help you with today?", tag: "Welcome", lang: /\b(hola|buenas|buenos)/i.test(text) ? "es-ES" : "en-US" }), priority: 3 });
+registerHandler("greeting", { keywords: ["hi", "hello", "hola", "hey", "buenos días", "buenas", "buenas tardes", "buenas noches"], fn: (text) => ({ text: /\b(hola|buenas|buenos|buenas tardes|buenas noches)/i.test(text) ? "Hola, soy Moesha. ¿En qué te puedo ayudar hoy?" : "Hi, I'm Moesha! What can I help you with today?", tag: "Welcome", lang: /\b(hola|buenas|buenos)/i.test(text) ? "es-ES" : "en-US" }), priority: 4 });
 registerHandler("fallback", { keywords: [], fn: (text) => ({ text: "This is a front-end demo; I provide general guidance. Please give a specific topic or error to get a focused answer.", tag: "Multi-domain helper", lang: "en-US" }) });
 
 function setAlarmFromRequest(userText) {
