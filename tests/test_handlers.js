@@ -37,7 +37,7 @@ function dispatchToHandlers(text) {
     if (trans) return { ...trans.fn(text), handler: 'translate', confidence: 1 };
   }
   // exact greeting
-  const exactGreetingRe = /^(hi|hello|hola|hey|buenos d[ií]as|buenas|buenas tardes|buenas noches)\b[!,.]?$/i;
+  const exactGreetingRe = /^(hi|hello|hola|hey|buenos d[ií]as|buenas|buenas tardes|buenas noches)(?:\s+[a-z][a-z'-]*)?[!,.?]?$/i;
   if (exactGreetingRe.test(trimmed)) {
     const greet = handlers.find(h => h.name === 'greeting');
     if (greet) return { ...greet.fn(text), handler: 'greeting', confidence: 1 };
@@ -67,6 +67,9 @@ function dispatchToHandlers(text) {
 registerHandler('planner', { keywords: ['note','remind','timer','alarm','reminder','schedule','appointment'], fn: (t)=>null, priority:2 });
 registerHandler('greeting', { keywords: ['hi','hello','hola','hey','buenos días','buenas'], fn: (t)=> ({ text: /\b(hola|buenas|buenos)/i.test(t) ? 'Hola' : 'Hi', tag: 'Welcome', lang: /\b(hola|buenas|buenos)/i.test(t) ? 'es-ES' : 'en-US' }), priority: 3 });
 registerHandler('coding', { keywords: ['html','css','flex','grid','javascript','js','python','c++','java','responsive'], fn: (t)=> ({ text: 'coding', tag:'Coding' }) });
+registerHandler('history', { keywords: ['history','historical','ancient','civilization','civilizations'], fn: (t)=> ({ text: 'history', tag:'History' }) });
+registerHandler('writing', { keywords: ['writing','write','rewrite','restat','paragraph','professional','clearer'], fn: (t)=> ({ text: 'writing', tag:'Writing' }) });
+registerHandler('trading', { keywords: ['trading','trader','candlestick','candle','chart','pattern','patterns'], fn: (t)=> ({ text: 'trading', tag:'Trading' }) });
 registerHandler('translate', { keywords: [/^translate\b/i, /^traduce\b/i, 'translate', 'traduce'], fn: (t) => {
   if (/^traduce\b/i.test(t)) return { text: 'traduce', tag: 'Translation', lang: 'es-ES' };
   if (/^translate\b/i.test(t)) return { text: 'translate', tag: 'Translation', lang: 'en-US' };
@@ -79,6 +82,9 @@ const tests = [
   'hello',
   'hola',
   'hey Moesha',
+  'Tell me an interesting history fact.',
+  'Please rewrite this paragraph professionally.',
+  'Explain a candlestick chart pattern.',
   'hello, can you help me with css?',
   'good morning',
   'buenas',

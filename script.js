@@ -210,7 +210,7 @@ function dispatchToHandlers(text) {
     if (trans) return { ...trans.fn(text), handler: 'translate', confidence: 1 };
   }
 
-  const exactGreetingRe = /^(hi|hello|hola|hey|buenos d[ií]as|buenas|buenas tardes|buenas noches)\b[!,.]?$/i;
+  const exactGreetingRe = /^(hi|hello|hola|hey|buenos d[ií]as|buenas|buenas tardes|buenas noches)(?:\s+[a-z][a-z'-]*)?[!,.?]?$/i;
   if (exactGreetingRe.test(trimmed)) {
     const greet = handlers.find(h => h.name === 'greeting');
     if (greet) return { ...greet.fn(text), handler: 'greeting', confidence: 1 };
@@ -244,7 +244,7 @@ function dispatchToHandlers(text) {
 // Register basic handlers (uses existing helper functions where possible)
 registerHandler("planner", { keywords: ["note", "remind", "timer", "alarm", "reminder", "schedule", "appointment"], fn: handlePlannerIntent, priority: 2 });
 registerHandler("weather", { keywords: ["weather", "forecast", "temperature", "rain", "sunny", "cloudy", "clima", "tiempo"], fn: (text) => {
-  const cityMatch = text.toLowerCase().match(/(?:in|for|at)\s+([a-zA-Z ]+)/i);
+  const cityMatch = text.toLowerCase().match(/(?:in|for|at)\s+([a-zA-Z ]+?)(?=\s+(?:today|tomorrow|now|please)\b|[?.!,]|$)/i);
   const city = cityMatch ? cityMatch[1].trim() : "your area";
   return { text: getWeatherSummary(city), tag: "Weather helper", lang: "en-US" };
 } });
@@ -259,6 +259,9 @@ registerHandler("health", { keywords: ["health", "diet", "exercise", "workout", 
 } });
 registerHandler("finance", { keywords: ["finance", "budget", "money", "saving", "debt", "dinero", "ahorro", "ahorrar", "presupuesto"], fn: (text) => ({ text: "Track income/expenses for a month, set a simple budget, and prioritize essentials.", tag: "Finance helper", lang: /\b(dinero|ahorro|presupuesto|guardar)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" }) });
 registerHandler("ideas", { keywords: ["idea", "brainstorm", "project"], fn: (text) => ({ text: "Write ideas quickly without judging, group similar ones, pick 1–2, and break into tiny next steps.", tag: "Ideas helper", lang: "en-US" }) });
+registerHandler("history", { keywords: ["history", "historical", "ancient", "civilization", "civilizations"], fn: (text) => ({ text: "I can give a concise historical overview. Tell me the period, place, or event you want to explore.", tag: "History helper", lang: "en-US" }) });
+registerHandler("writing", { keywords: ["writing", "write", "rewrite", "restat", "paragraph", "professional", "clearer"], fn: (text) => ({ text: "Paste the passage and tell me the tone you want. I can rewrite it for clarity, brevity, or a more professional voice.", tag: "Writing helper", lang: "en-US" }) });
+registerHandler("trading", { keywords: ["trading", "trader", "candlestick", "candle", "chart", "pattern", "patterns"], fn: (text) => ({ text: "Candlestick patterns are signals, not guarantees. I can explain a pattern, its context, and common risk-management considerations.", tag: "Trading helper", lang: "en-US" }) });
 registerHandler("translate", { keywords: [/^translate\b/i, /^traduce\b/i, "translate", "traduce", "translate to spanish", "traduce a español", "español", "spanish"], fn: (text) => {
   if (/^translate\b/i.test(text)) {
     const phrase = text.slice(10).trim();
@@ -275,12 +278,13 @@ registerHandler("fallback", { keywords: [], fn: (text) => ({ text: "This is a fr
 
 function setAlarmFromRequest(userText) {
   const lower = userText.toLowerCase();
-  const timeMatch = lower.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+  const timeMatch = lower.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
   if (!timeMatch) return null;
 
   const hour = Number(timeMatch[1]);
   const minute = Number(timeMatch[2] || 0);
   const period = timeMatch[3];
+  if (minute > 59 || (period && (hour < 1 || hour > 12)) || (!period && hour > 23)) return null;
   let alarmHour = hour;
 
   if (period === "pm" && alarmHour < 12) alarmHour += 12;
@@ -293,15 +297,16 @@ function setAlarmFromRequest(userText) {
   if (alarmTime <= now) alarmTime.setDate(alarmTime.getDate() + 1);
 
   const diff = alarmTime.getTime() - now.getTime();
-  reminders.push({ text: `Alarm: ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`, createdAt: new Date() });
+  const formattedAlarmTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}${period ? ` ${period.toUpperCase()}` : ""}`;
+  reminders.push({ text: `Alarm: ${formattedAlarmTime}`, createdAt: new Date() });
   renderPlanner();
 
   setTimeout(() => {
-    showBrowserNotification("Moesha alarm", `Alarm ringing at ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}.`);
+    showBrowserNotification("Moesha alarm", `Alarm ringing at ${formattedAlarmTime}.`);
   }, diff);
 
   return {
-    text: `Alarm set for ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}.`,
+    text: `Alarm set for ${formattedAlarmTime}.`,
     tag: "Alarm",
     lang: "en-US",
   };
@@ -566,7 +571,7 @@ function handlePlannerIntent(userText) {
   }
 
   if (/weather|forecast/i.test(lower)) {
-    const cityMatch = lower.match(/(?:in|for|at)\s+([a-zA-Z ]+)/i);
+    const cityMatch = lower.match(/(?:in|for|at)\s+([a-zA-Z ]+?)(?=\s+(?:today|tomorrow|now|please)\b|[?.!,]|$)/i);
     const city = cityMatch ? cityMatch[1].trim() : "your area";
     return {
       text: getWeatherSummary(city),
