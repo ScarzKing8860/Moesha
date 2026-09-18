@@ -22,14 +22,31 @@ const ELEVENLABS_VOICE_ID = "moesha-elevenlabs-voice";
 const VOICE_ENABLED_KEY = "moesha-voice-enabled";
 const notes = [];
 const reminders = [];
-let elevenLabsApiKey = localStorage.getItem(ELEVENLABS_KEY) || "";
-let elevenLabsVoiceId = localStorage.getItem(ELEVENLABS_VOICE_ID) || "";
-let isVoiceEnabled = localStorage.getItem(VOICE_ENABLED_KEY) === "true";
+function readStorage(key, fallback = "") {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch (error) {
+    console.warn("Browser storage is unavailable", error);
+    return fallback;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    console.warn("Browser storage could not be saved", error);
+  }
+}
+
+let elevenLabsApiKey = readStorage(ELEVENLABS_KEY);
+let elevenLabsVoiceId = readStorage(ELEVENLABS_VOICE_ID);
+let isVoiceEnabled = readStorage(VOICE_ENABLED_KEY) === "true";
 const elevenLabsStatus = document.getElementById("elevenlabs-status");
 
 function loadPlannerState() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = readStorage(STORAGE_KEY, "");
     if (!saved) return;
     const parsed = JSON.parse(saved);
     if (Array.isArray(parsed.notes)) notes.push(...parsed.notes);
@@ -40,11 +57,7 @@ function loadPlannerState() {
 }
 
 function savePlannerState() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ notes, reminders }));
-  } catch (error) {
-    console.warn("Planner storage could not be saved", error);
-  }
+  writeStorage(STORAGE_KEY, JSON.stringify({ notes, reminders }));
 }
 
 function createAssistantAvatar() {
@@ -95,7 +108,8 @@ async function speakText(text, lang = "en-US") {
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
-        audio.play();
+        audio.addEventListener("ended", () => URL.revokeObjectURL(audioUrl), { once: true });
+        await audio.play();
         return;
       }
     } catch (error) {
@@ -133,7 +147,7 @@ function showBrowserNotification(title, body) {
       if (Notification.permission === "granted") {
         new Notification(title, { body });
       }
-    });
+    }).catch((error) => console.warn("Notification permission failed", error));
   }
 }
 
@@ -194,6 +208,7 @@ function scoreHandler(handler, text) {
         score += 1;
       }
     } else if (k instanceof RegExp) {
+      k.lastIndex = 0;
       if (k.test(lower)) score += 2;
     }
   }
@@ -210,7 +225,7 @@ function dispatchToHandlers(text) {
     if (trans) return { ...trans.fn(text), handler: 'translate', confidence: 1 };
   }
 
-  const exactGreetingRe = /^(hi|hello|hola|hey|buenos d[ií]as|buenas|buenas tardes|buenas noches)(?:\s+[a-z][a-z'-]*)?[!,.?]?$/i;
+  const exactGreetingRe = /^(hi|hello|hola|hey|good morning|good afternoon|good evening|buenos d[ií]as|buenas|buenas tardes|buenas noches)(?:\s+[a-z][a-z'-]*)?[!,.?]?$/i;
   if (exactGreetingRe.test(trimmed)) {
     const greet = handlers.find(h => h.name === 'greeting');
     if (greet) return { ...greet.fn(text), handler: 'greeting', confidence: 1 };
@@ -236,8 +251,9 @@ function dispatchToHandlers(text) {
   }
 
   const result = best.handler.fn(text) || { text: "No reply", tag: "Unknown", lang: "en-US" };
-  const maxKeywords = Math.max(1, best.handler.keywords.length);
-  const confidence = Math.min(1, best.score / maxKeywords);
+  const priorityBonus = (best.handler.priority || 0) * 0.01;
+  const matchedScore = Math.max(0, best.score - priorityBonus);
+  const confidence = Math.min(1, matchedScore / 2);
   return { ...result, handler: best.handler.name, confidence };
 }
 
@@ -249,18 +265,19 @@ registerHandler("weather", { keywords: ["weather", "forecast", "temperature", "r
   return { text: getWeatherSummary(city), tag: "Weather helper", lang: "en-US" };
 } });
 registerHandler("coding", { keywords: ["html", "css", "flex", "grid", "javascript", "js", "python", "c++", "java", "responsive"], fn: (text) => {
+  if (/error|bug|not working|doesn't work|does not work|why/i.test(text)) return { text: "Start with the browser console, reproduce the issue, and share the exact error plus the smallest relevant code. Check that the script loads, selectors match, and the event runs.", tag: "Coding helper", lang: "en-US" };
   if (/html/i.test(text)) return { text: "Check your HTML nesting and attributes; ensure elements are closed.", tag: "Coding helper", lang: "en-US" };
   if (/css|flex|grid/i.test(text)) return { text: "Inspect computed styles in DevTools and validate layout rules (display, parent constraints).", tag: "Coding helper", lang: "en-US" };
   if (/javascript|\bjs\b/i.test(text)) return { text: "Check the console for runtime errors and ensure scripts are loaded after DOM or use DOMContentLoaded.", tag: "Coding helper", lang: "en-US" };
   return { text: "I can help with coding questions—can you share a bit more detail or an error message?", tag: "Coding helper", lang: "en-US" };
 } });
 registerHandler("health", { keywords: ["health", "diet", "exercise", "workout", "sleep", "salud", "ejercicio"], fn: (text) => {
-  return { text: "General wellness tips: consistent sleep, balanced meals, movement, and stress management. For personalized advice, consult a professional.", tag: "Health helper", lang: /\b(es|spanish|esp)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" };
+  return { text: "A practical starting point is consistent sleep, balanced meals with enough protein and fiber, regular movement, and a small daily stress reset. For symptoms, medication, pregnancy, or personalized goals, consult a qualified professional.", tag: "Health helper", lang: /\b(es|spanish|esp)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" };
 } });
-registerHandler("finance", { keywords: ["finance", "budget", "money", "saving", "debt", "dinero", "ahorro", "ahorrar", "presupuesto"], fn: (text) => ({ text: "Track income/expenses for a month, set a simple budget, and prioritize essentials.", tag: "Finance helper", lang: /\b(dinero|ahorro|presupuesto|guardar)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" }) });
-registerHandler("ideas", { keywords: ["idea", "brainstorm", "project"], fn: (text) => ({ text: "Write ideas quickly without judging, group similar ones, pick 1–2, and break into tiny next steps.", tag: "Ideas helper", lang: "en-US" }) });
-registerHandler("history", { keywords: ["history", "historical", "ancient", "civilization", "civilizations"], fn: (text) => ({ text: "I can give a concise historical overview. Tell me the period, place, or event you want to explore.", tag: "History helper", lang: "en-US" }) });
-registerHandler("writing", { keywords: ["writing", "write", "rewrite", "restat", "paragraph", "professional", "clearer"], fn: (text) => ({ text: "Paste the passage and tell me the tone you want. I can rewrite it for clarity, brevity, or a more professional voice.", tag: "Writing helper", lang: "en-US" }) });
+registerHandler("finance", { keywords: ["finance", "budget", "money", "saving", "debt", "dinero", "ahorro", "ahorrar", "presupuesto"], fn: (text) => ({ text: "Start by listing monthly take-home income and fixed essentials, then assign limits for flexible spending, savings, and debt payments. Review the plan weekly and avoid financial decisions based on this demo alone.", tag: "Finance helper", lang: /\b(dinero|ahorro|presupuesto|guardar)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" }) });
+registerHandler("ideas", { keywords: ["idea", "brainstorm", "project"], fn: (text) => ({ text: "Try this: generate five rough ideas, combine the two most useful, define the audience and outcome, then build the smallest testable version this week.", tag: "Ideas helper", lang: "en-US" }) });
+registerHandler("history", { keywords: ["history", "historical", "ancient", "civilization", "civilizations"], fn: (text) => ({ text: "A useful way to understand history is to connect causes, turning points, people, and consequences. Name a period, place, or event and I’ll organize the overview with that structure.", tag: "History helper", lang: "en-US" }) });
+registerHandler("writing", { keywords: ["writing", "write", "rewrite", "restat", "paragraph", "professional", "clearer", "grammar", "email", "shorter"], fn: (text) => ({ text: "For a stronger rewrite, lead with the main point, remove repetition, use concrete verbs, and end with a clear next step. Paste the text and specify the audience or tone.", tag: "Writing helper", lang: "en-US" }) });
 registerHandler("trading", { keywords: ["trading", "trader", "candlestick", "candle", "chart", "pattern", "patterns"], fn: (text) => ({ text: "Candlestick patterns are signals, not guarantees. I can explain a pattern, its context, and common risk-management considerations.", tag: "Trading helper", lang: "en-US" }) });
 registerHandler("translate", { keywords: [/^translate\b/i, /^traduce\b/i, "translate", "traduce", "translate to spanish", "traduce a español", "español", "spanish"], fn: (text) => {
   if (/^translate\b/i.test(text)) {
@@ -504,7 +521,7 @@ function handlePlannerIntent(userText) {
   }
 
   if (/(take|add|save|make)\s+(a|an)?\s*note|\bnote\b/i.test(lower)) {
-    const noteText = lower
+    const noteText = userText.trim()
       .replace(/^(take|add|save|make)\s+(a|an)?\s*note\s*/i, "")
       .replace(/^note\s*/i, "")
       .trim();
@@ -527,7 +544,7 @@ function handlePlannerIntent(userText) {
   }
 
   if (/remind|reminder/i.test(lower)) {
-    const reminderText = lower
+    const reminderText = userText.trim()
       .replace(/^(remind me|add reminder|set reminder)\s*/i, "")
       .replace(/reminder\s*/i, "")
       .trim();
@@ -609,6 +626,7 @@ function generateMockReply(userText) {
 loadPlannerState();
 renderPlanner();
 updateElevenLabsStatus();
+const pendingResponseTimers = new Set();
 
 // SECTION: Event Handlers
 if (chatForm && userInput && chatWindow) {
@@ -628,7 +646,8 @@ if (chatForm && userInput && chatWindow) {
     const typingNode = showTypingIndicator();
 
     // Simulate network / thinking delay
-    setTimeout(() => {
+    const responseTimer = setTimeout(() => {
+      pendingResponseTimers.delete(responseTimer);
       typingNode.querySelector(".message-avatar")?.classList.remove("is-speaking");
       typingNode.remove();
       const res = generateMockReply(text);
@@ -648,6 +667,7 @@ if (chatForm && userInput && chatWindow) {
         speakText(replyText, lang || "en-US");
       }
     }, 700);
+    pendingResponseTimers.add(responseTimer);
   });
 }
 
@@ -666,6 +686,8 @@ if (sampleQuestionBtn && exampleList && userInput) {
 // New chat button - clears chat and restores initial assistant intro
 if (newChatBtn && chatWindow) {
   newChatBtn.addEventListener("click", () => {
+    pendingResponseTimers.forEach((timer) => clearTimeout(timer));
+    pendingResponseTimers.clear();
     const initial = chatWindow.querySelector("[data-initial-message='true']");
     chatWindow.innerHTML = "";
     if (initial) {
@@ -785,7 +807,7 @@ if (voiceToggle) {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     isVoiceEnabled = target.checked;
-    localStorage.setItem(VOICE_ENABLED_KEY, String(isVoiceEnabled));
+    writeStorage(VOICE_ENABLED_KEY, String(isVoiceEnabled));
     if (!isVoiceEnabled && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -797,7 +819,7 @@ if (elevenLabsStatus) {
     const key = prompt("Enter your ElevenLabs API key", elevenLabsApiKey || "");
     if (key === null) return;
     elevenLabsApiKey = key.trim();
-    localStorage.setItem(ELEVENLABS_KEY, elevenLabsApiKey);
+    writeStorage(ELEVENLABS_KEY, elevenLabsApiKey);
     updateElevenLabsStatus();
   });
 }

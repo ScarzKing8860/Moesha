@@ -1,4 +1,5 @@
 // Quick unit-like test for handler dispatch (isolated)
+const assert = require('node:assert/strict');
 const handlers = [];
 function registerHandler(name, { keywords = [], fn, priority = 0 } = {}) {
   handlers.push({ name, keywords, fn, priority });
@@ -37,7 +38,7 @@ function dispatchToHandlers(text) {
     if (trans) return { ...trans.fn(text), handler: 'translate', confidence: 1 };
   }
   // exact greeting
-  const exactGreetingRe = /^(hi|hello|hola|hey|buenos d[ií]as|buenas|buenas tardes|buenas noches)(?:\s+[a-z][a-z'-]*)?[!,.?]?$/i;
+  const exactGreetingRe = /^(hi|hello|hola|hey|good morning|good afternoon|good evening|buenos d[ií]as|buenas|buenas tardes|buenas noches)(?:\s+[a-z][a-z'-]*)?[!,.?]?$/i;
   if (exactGreetingRe.test(trimmed)) {
     const greet = handlers.find(h => h.name === 'greeting');
     if (greet) return { ...greet.fn(text), handler: 'greeting', confidence: 1 };
@@ -58,8 +59,9 @@ function dispatchToHandlers(text) {
     return { text: "I don't understand that yet.", tag: 'Fallback', lang: 'en-US', confidence: 0.2 };
   }
   const result = best.handler.fn(text) || { text: 'No reply', tag: 'Unknown', lang: 'en-US' };
-  const maxKeywords = Math.max(1, best.handler.keywords.length);
-  const confidence = Math.min(1, best.score / maxKeywords);
+  const priorityBonus = (best.handler.priority || 0) * 0.01;
+  const matchedScore = Math.max(0, best.score - priorityBonus);
+  const confidence = Math.min(1, matchedScore / 2);
   return { ...result, handler: best.handler.name, confidence };
 }
 
@@ -100,3 +102,11 @@ for (const t of tests) {
   const r = dispatchToHandlers(t);
   console.log(JSON.stringify({ input: t, handler: r.handler, confidence: r.confidence, tag: r.tag, text: r.text }));
 }
+
+assert.equal(dispatchToHandlers('hey Moesha').handler, 'greeting');
+assert.equal(dispatchToHandlers('good morning').handler, 'greeting');
+assert.equal(dispatchToHandlers('Tell me an interesting history fact.').handler, 'history');
+assert.equal(dispatchToHandlers('Please rewrite this paragraph professionally.').handler, 'writing');
+assert.equal(dispatchToHandlers('Explain a candlestick chart pattern.').handler, 'trading');
+assert.equal(dispatchToHandlers('Why is my CSS not working?').handler, 'coding');
+assert.equal(dispatchToHandlers('Why is my CSS not working?').confidence, 1);
