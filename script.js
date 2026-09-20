@@ -9,34 +9,25 @@ const quickHtmlBtn = document.getElementById("quick-html");
 const quickCssBtn = document.getElementById("quick-css");
 const quickJsBtn = document.getElementById("quick-js");
 const quickHealthBtn = document.getElementById("quick-health");
+const quickDietBtn = document.getElementById("quick-diet");
 const quickFinanceBtn = document.getElementById("quick-finance");
 const quickIdeasBtn = document.getElementById("quick-ideas");
+const quickTriviaBtn = document.getElementById("quick-trivia");
 const micBtn = document.getElementById("mic-btn");
 const exampleList = document.getElementById("example-list");
 const plannerList = document.getElementById("planner-list");
 const clearPlannerBtn = document.getElementById("clear-planner-btn");
 const assistantAvatarSrc = "img/Moesha.png";
-const STORAGE_KEY = "moesha-planner";
-const ELEVENLABS_KEY = "moesha-elevenlabs-key";
-const ELEVENLABS_VOICE_ID = "moesha-elevenlabs-voice";
-const VOICE_ENABLED_KEY = "moesha-voice-enabled";
+const STORAGE_KEY = "moesha-redesign-planner-v1";
+const THREADS_KEY = "moesha-redesign-threads-v1";
+const ELEVENLABS_KEY = "moesha-redesign-elevenlabs-key";
+const ELEVENLABS_VOICE_ID = "moesha-redesign-elevenlabs-voice";
+const VOICE_ENABLED_KEY = "moesha-redesign-voice-enabled";
+const TIMER_KEY = "moesha-redesign-timer-v1";
 const notes = [];
 const reminders = [];
 function readStorage(key, fallback = "") {
-  try {
-    return localStorage.getItem(key) ?? fallback;
-  } catch (error) {
-    console.warn("Browser storage is unavailable", error);
-    return fallback;
-  }
-}
-
-function writeStorage(key, value) {
-  try {
-    localStorage.setItem(key, value);
-  } catch (error) {
-    console.warn("Browser storage could not be saved", error);
-  }
+  try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
 }
 
 let elevenLabsApiKey = readStorage(ELEVENLABS_KEY);
@@ -46,7 +37,7 @@ const elevenLabsStatus = document.getElementById("elevenlabs-status");
 
 function loadPlannerState() {
   try {
-    const saved = readStorage(STORAGE_KEY, "");
+    const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return;
     const parsed = JSON.parse(saved);
     if (Array.isArray(parsed.notes)) notes.push(...parsed.notes);
@@ -57,12 +48,39 @@ function loadPlannerState() {
 }
 
 function savePlannerState() {
-  writeStorage(STORAGE_KEY, JSON.stringify({ notes, reminders }));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ notes, reminders }));
+  } catch (error) {
+    console.warn("Planner storage could not be saved", error);
+  }
+}
+
+function getDateLabel() {
+  return new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric" }).format(new Date());
+}
+
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  if (!toast) return;
+  toast.textContent = message;
+  toast.hidden = false;
+  window.clearTimeout(showToast.timeoutId);
+  showToast.timeoutId = window.setTimeout(() => { toast.hidden = true; }, 2800);
+}
+
+function saveThread(prompt) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(THREADS_KEY) || "[]");
+    const threads = [{ title: prompt.slice(0, 36), createdAt: new Date().toISOString() }, ...saved].slice(0, 8);
+    localStorage.setItem(THREADS_KEY, JSON.stringify(threads));
+  } catch (error) {
+    console.warn("Redesign threads could not be saved", error);
+  }
 }
 
 function createAssistantAvatar() {
   const avatar = document.createElement("div");
-  avatar.className = "message-avatar";
+  avatar.className = "message-avatar assistant-avatar";
 
   const image = document.createElement("img");
   image.className = "avatar-image";
@@ -108,8 +126,7 @@ async function speakText(text, lang = "en-US") {
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
-        audio.addEventListener("ended", () => URL.revokeObjectURL(audioUrl), { once: true });
-        await audio.play();
+        audio.play();
         return;
       }
     } catch (error) {
@@ -126,10 +143,15 @@ async function speakText(text, lang = "en-US") {
   utterance.pitch = 1.35;
   utterance.volume = 1;
 
+  const langPrefix = (lang || "en-US").slice(0, 2).toLowerCase();
   const voices = window.speechSynthesis.getVoices();
-  const preferredVoice = voices.find((voice) =>
-    voice.lang.startsWith("en") && /female|samantha|victoria|zira|ava|jenny|susan|en-us|premium/i.test(voice.name)
-  ) || voices.find((voice) => voice.lang.startsWith("en") && voice.localService);
+  const preferredVoice =
+    voices.find((voice) =>
+      voice.lang.toLowerCase().startsWith(langPrefix) &&
+      /female|samantha|victoria|zira|ava|jenny|susan|paulina|monica|premium/i.test(voice.name)
+    ) ||
+    voices.find((voice) => voice.lang.toLowerCase().startsWith(langPrefix) && voice.localService) ||
+    voices.find((voice) => voice.lang.toLowerCase().startsWith(langPrefix));
 
   if (preferredVoice) {
     utterance.voice = preferredVoice;
@@ -147,41 +169,186 @@ function showBrowserNotification(title, body) {
       if (Notification.permission === "granted") {
         new Notification(title, { body });
       }
-    }).catch((error) => console.warn("Notification permission failed", error));
+    });
   }
 }
 
-function setTimerFromRequest(userText) {
-  const lower = userText.toLowerCase();
-  const minuteMatch = lower.match(/(\d+)\s*(minute|minutes|min|m)\b/);
-  const hourMatch = lower.match(/(\d+)\s*(hour|hours|hr|h)\b/);
-  const secondMatch = lower.match(/(\d+)\s*(second|seconds|sec|s)\b/);
+function parseTimerDuration(userText) {
+  if (typeof userText !== "string") return null;
 
-  if (minuteMatch || hourMatch || secondMatch) {
-    let totalMs = 0;
-    if (hourMatch) totalMs += Number(hourMatch[1]) * 3600 * 1000;
-    if (minuteMatch) totalMs += Number(minuteMatch[1]) * 60 * 1000;
-    if (secondMatch) totalMs += Number(secondMatch[1]) * 1000;
+  const matches = [...userText.toLowerCase().matchAll(/(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)\b/g)];
+  if (!matches.length) return null;
 
-    if (totalMs > 0) {
-      const durationText = `${hourMatch ? hourMatch[1] + "h " : ""}${minuteMatch ? minuteMatch[1] + "m " : ""}${secondMatch ? secondMatch[1] + "s" : ""}`.trim();
-      const timerLabel = durationText || "timer";
-      reminders.push({ text: `Timer: ${timerLabel}`, createdAt: new Date() });
-      renderPlanner();
+  let totalMs = 0;
+  const parts = { hours: 0, minutes: 0, seconds: 0 };
 
-      setTimeout(() => {
-        showBrowserNotification("Moesha timer", `Your ${timerLabel} timer is done.`);
-      }, totalMs);
+  matches.forEach((match) => {
+    const value = Number(match[1]);
+    const unit = match[2].toLowerCase();
 
-      return {
-        text: `Timer set for ${timerLabel}. I’ll notify you when it’s done.`,
-        tag: "Timer",
-        lang: "en-US",
-      };
+    if (/hours?|hrs?|hr|h$/.test(unit)) {
+      totalMs += value * 60 * 60 * 1000;
+      parts.hours += value;
+    } else if (/minutes?|mins?|min|m$/.test(unit)) {
+      totalMs += value * 60 * 1000;
+      parts.minutes += value;
+    } else if (/seconds?|secs?|sec|s$/.test(unit)) {
+      totalMs += value * 1000;
+      parts.seconds += value;
     }
+  });
+
+  if (totalMs <= 0) return null;
+
+  return { totalMs, parts };
+}
+
+function formatTimerDisplay(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
+const timerState = {
+  totalMs: 0,
+  remainingMs: 0,
+  intervalId: null,
+  isRunning: false,
+  endTime: 0,
+};
+
+function updateTimerDisplay() {
+  const displayMs = timerState.remainingMs > 0 ? timerState.remainingMs : timerState.totalMs;
+  if (timerDisplay) {
+    timerDisplay.textContent = formatTimerDisplay(timerState.remainingMs > 0 ? timerState.remainingMs : (timerState.isRunning ? timerState.remainingMs : timerState.totalMs));
+  }
+}
+
+function stopTimerInterval() {
+  if (timerState.intervalId) {
+    clearInterval(timerState.intervalId);
+    timerState.intervalId = null;
+  }
+}
+
+function updateTimerButtons() {
+  if (!timerStartBtn || !timerPauseBtn || !timerResetBtn) return;
+  timerStartBtn.disabled = timerState.isRunning || timerState.totalMs <= 0;
+  timerPauseBtn.disabled = !timerState.isRunning;
+  timerResetBtn.disabled = timerState.totalMs <= 0 && timerState.remainingMs <= 0;
+}
+
+function saveTimerState() {
+  try {
+    const remainingMs = timerState.isRunning ? Math.max(0, timerState.endTime - Date.now()) : timerState.remainingMs;
+    localStorage.setItem(TIMER_KEY, JSON.stringify({ totalMs: timerState.totalMs, remainingMs }));
+  } catch (error) {
+    console.warn("Redesign timer could not be saved", error);
+  }
+}
+
+function setTimerFromInput(value) {
+  const parsed = parseTimerDuration(value || "");
+  if (!parsed) return null;
+
+  timerState.totalMs = parsed.totalMs;
+  timerState.remainingMs = parsed.totalMs;
+  timerState.endTime = 0;
+  timerState.isRunning = false;
+  stopTimerInterval();
+  updateTimerDisplay();
+  updateTimerButtons();
+  saveTimerState();
+
+  return {
+    text: `Timer set for ${formatTimerDisplay(parsed.totalMs)}. I’ll notify you when it’s done.`,
+    tag: "Timer",
+    lang: "en-US",
+  };
+}
+
+function setTimerFromRequest(userText) {
+  const parsed = parseTimerDuration(userText);
+  if (!parsed) return null;
+
+  const timerLabel = formatTimerDisplay(parsed.totalMs);
+  reminders.push({ text: `Timer: ${timerLabel}`, createdAt: new Date() });
+  renderPlanner();
+  if (timerInput) timerInput.value = `${parsed.totalMs / 1000} seconds`;
+  timerState.totalMs = parsed.totalMs;
+  timerState.remainingMs = parsed.totalMs;
+  startTimerFromWidget();
+
+  return {
+    text: `Timer set for ${timerLabel}. I’ll notify you when it’s done.`,
+    tag: "Timer",
+    lang: "en-US",
+  };
+}
+
+function startTimerFromWidget() {
+  const sourceText = timerInput ? timerInput.value.trim() : "";
+  const parsed = parseTimerDuration(sourceText);
+
+  if (!parsed) {
+    const reply = "Enter a timer like 5 minutes, 1 hour, or 30s to start the countdown.";
+    if (timerDisplay) timerDisplay.textContent = "00:00:00";
+    if (chatWindow) {
+      appendMessage({ role: "assistant", text: reply, messageTagType: "Timer" });
+      speakText(reply, "en-US");
+    }
+    return;
   }
 
-  return null;
+  if (!timerState.isRunning) {
+    timerState.totalMs = parsed.totalMs;
+    timerState.remainingMs = timerState.remainingMs > 0 ? timerState.remainingMs : parsed.totalMs;
+    timerState.endTime = Date.now() + timerState.remainingMs;
+    timerState.isRunning = true;
+    updateTimerDisplay();
+
+    stopTimerInterval();
+    timerState.intervalId = window.setInterval(() => {
+      timerState.remainingMs = Math.max(0, timerState.endTime - Date.now());
+      updateTimerDisplay();
+
+      if (timerState.remainingMs <= 0) {
+        stopTimerInterval();
+        timerState.isRunning = false;
+        timerState.remainingMs = 0;
+        timerState.totalMs = 0;
+        saveTimerState();
+        updateTimerButtons();
+        updateTimerDisplay();
+        showBrowserNotification("Moesha timer", "Your timer is complete.");
+        speakText("Your timer is complete.", "en-US");
+      }
+    }, 1000);
+  }
+
+  updateTimerButtons();
+}
+
+function pauseTimerFromWidget() {
+  if (!timerState.isRunning) return;
+  timerState.remainingMs = Math.max(0, timerState.endTime - Date.now());
+  timerState.isRunning = false;
+  stopTimerInterval();
+  updateTimerDisplay();
+  updateTimerButtons();
+  saveTimerState();
+}
+
+function resetTimerFromWidget() {
+  pauseTimerFromWidget();
+  timerState.totalMs = parseTimerDuration(timerInput ? timerInput.value.trim() : "")?.totalMs || timerState.totalMs || 0;
+  timerState.remainingMs = timerState.totalMs;
+  timerState.endTime = 0;
+  updateTimerDisplay();
+  updateTimerButtons();
+  saveTimerState();
 }
 
 // -----------------------------
@@ -193,6 +360,10 @@ function registerHandler(name, { keywords = [], fn, priority = 0 } = {}) {
   handlers.push({ name, keywords, fn, priority });
 }
 
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function scoreHandler(handler, text) {
   const lower = text.toLowerCase();
   let score = 0;
@@ -201,14 +372,13 @@ function scoreHandler(handler, text) {
     if (typeof k === "string") {
       const kw = k.toLowerCase();
       // exact word boundary match gets a higher boost
-      const wordRe = new RegExp("\\b" + kw.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&") + "\\b");
+      const wordRe = new RegExp("\\b" + escapeRegExp(kw) + "\\b");
       if (wordRe.test(lower)) {
         score += 2;
       } else if (lower.includes(kw)) {
         score += 1;
       }
     } else if (k instanceof RegExp) {
-      k.lastIndex = 0;
       if (k.test(lower)) score += 2;
     }
   }
@@ -225,7 +395,7 @@ function dispatchToHandlers(text) {
     if (trans) return { ...trans.fn(text), handler: 'translate', confidence: 1 };
   }
 
-  const exactGreetingRe = /^(hi|hello|hola|hey|good morning|good afternoon|good evening|buenos d[ií]as|buenas|buenas tardes|buenas noches)(?:\s+[a-z][a-z'-]*)?[!,.?]?$/i;
+  const exactGreetingRe = /^(hi|hello|hola|hey|buenos d[ií]as|buenas|buenas tardes|buenas noches)\b[!,.]?$/i;
   if (exactGreetingRe.test(trimmed)) {
     const greet = handlers.find(h => h.name === 'greeting');
     if (greet) return { ...greet.fn(text), handler: 'greeting', confidence: 1 };
@@ -251,34 +421,43 @@ function dispatchToHandlers(text) {
   }
 
   const result = best.handler.fn(text) || { text: "No reply", tag: "Unknown", lang: "en-US" };
-  const priorityBonus = (best.handler.priority || 0) * 0.01;
-  const matchedScore = Math.max(0, best.score - priorityBonus);
-  const confidence = Math.min(1, matchedScore / 2);
+  const keywordCount = Math.max(1, best.handler.keywords.length);
+  // Use a smaller divisor so handlers with many keywords aren't unfairly penalized.
+  const scale = Math.max(1, Math.ceil(keywordCount / 3));
+  let confidence = Math.min(1, best.score / scale);
+  // Ensure a small positive score yields at least a modest confidence
+  if (confidence === 0 && best.score > 0) confidence = Math.min(0.3, best.score / (scale * 2));
   return { ...result, handler: best.handler.name, confidence };
 }
 
 // Register basic handlers (uses existing helper functions where possible)
 registerHandler("planner", { keywords: ["note", "remind", "timer", "alarm", "reminder", "schedule", "appointment"], fn: handlePlannerIntent, priority: 2 });
 registerHandler("weather", { keywords: ["weather", "forecast", "temperature", "rain", "sunny", "cloudy", "clima", "tiempo"], fn: (text) => {
-  const cityMatch = text.toLowerCase().match(/(?:in|for|at)\s+([a-zA-Z ]+?)(?=\s+(?:today|tomorrow|now|please)\b|[?.!,]|$)/i);
+  const cityMatch = text.toLowerCase().match(/(?:in|for|at)\s+([a-zA-Z ]+)/i);
   const city = cityMatch ? cityMatch[1].trim() : "your area";
   return { text: getWeatherSummary(city), tag: "Weather helper", lang: "en-US" };
 } });
 registerHandler("coding", { keywords: ["html", "css", "flex", "grid", "javascript", "js", "python", "c++", "java", "responsive"], fn: (text) => {
-  if (/error|bug|not working|doesn't work|does not work|why/i.test(text)) return { text: "Start with the browser console, reproduce the issue, and share the exact error plus the smallest relevant code. Check that the script loads, selectors match, and the event runs.", tag: "Coding helper", lang: "en-US" };
   if (/html/i.test(text)) return { text: "Check your HTML nesting and attributes; ensure elements are closed.", tag: "Coding helper", lang: "en-US" };
   if (/css|flex|grid/i.test(text)) return { text: "Inspect computed styles in DevTools and validate layout rules (display, parent constraints).", tag: "Coding helper", lang: "en-US" };
   if (/javascript|\bjs\b/i.test(text)) return { text: "Check the console for runtime errors and ensure scripts are loaded after DOM or use DOMContentLoaded.", tag: "Coding helper", lang: "en-US" };
   return { text: "I can help with coding questions—can you share a bit more detail or an error message?", tag: "Coding helper", lang: "en-US" };
 } });
-registerHandler("health", { keywords: ["health", "diet", "exercise", "workout", "sleep", "salud", "ejercicio"], fn: (text) => {
-  return { text: "A practical starting point is consistent sleep, balanced meals with enough protein and fiber, regular movement, and a small daily stress reset. For symptoms, medication, pregnancy, or personalized goals, consult a qualified professional.", tag: "Health helper", lang: /\b(es|spanish|esp)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" };
+registerHandler("health", { keywords: ["health", "exercise", "workout", "sleep", "salud", "ejercicio"], fn: (text) => {
+  return { text: "General wellness tips: consistent sleep, balanced meals, movement, and stress management. For personalized advice, consult a professional.", tag: "Health helper", lang: /\b(es|spanish|esp)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" };
 } });
-registerHandler("finance", { keywords: ["finance", "budget", "money", "saving", "debt", "dinero", "ahorro", "ahorrar", "presupuesto"], fn: (text) => ({ text: "Start by listing monthly take-home income and fixed essentials, then assign limits for flexible spending, savings, and debt payments. Review the plan weekly and avoid financial decisions based on this demo alone.", tag: "Finance helper", lang: /\b(dinero|ahorro|presupuesto|guardar)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" }) });
-registerHandler("ideas", { keywords: ["idea", "brainstorm", "project"], fn: (text) => ({ text: "Try this: generate five rough ideas, combine the two most useful, define the audience and outcome, then build the smallest testable version this week.", tag: "Ideas helper", lang: "en-US" }) });
-registerHandler("history", { keywords: ["history", "historical", "ancient", "civilization", "civilizations"], fn: (text) => ({ text: "A useful way to understand history is to connect causes, turning points, people, and consequences. Name a period, place, or event and I’ll organize the overview with that structure.", tag: "History helper", lang: "en-US" }) });
-registerHandler("writing", { keywords: ["writing", "write", "rewrite", "restat", "paragraph", "professional", "clearer", "grammar", "email", "shorter"], fn: (text) => ({ text: "For a stronger rewrite, lead with the main point, remove repetition, use concrete verbs, and end with a clear next step. Paste the text and specify the audience or tone.", tag: "Writing helper", lang: "en-US" }) });
-registerHandler("trading", { keywords: ["trading", "trader", "candlestick", "candle", "chart", "pattern", "patterns"], fn: (text) => ({ text: "Candlestick patterns are signals, not guarantees. I can explain a pattern, its context, and common risk-management considerations.", tag: "Trading helper", lang: "en-US" }) });
+registerHandler("diet", {
+  keywords: ["diet", "nutrition", "calorie", "calories", "macro", "macros", "protein", "carbs", "meal plan", "meal", "vegan", "vegetarian", "keto", "lose weight", "gain muscle", "bulk", "cut", "bmi", "bmr", "dieta", "nutrición"],
+  priority: 1,
+  fn: handleDietIntent,
+});
+registerHandler("finance", { keywords: ["finance", "budget", "money", "saving", "debt", "dinero", "ahorro", "ahorrar", "presupuesto"], fn: (text) => ({ text: "Track income/expenses for a month, set a simple budget, and prioritize essentials.", tag: "Finance helper", lang: /\b(dinero|ahorro|presupuesto|guardar)\b/i.test(text.toLowerCase()) ? "es-ES" : "en-US" }) });
+registerHandler("ideas", { keywords: ["idea", "brainstorm", "project"], fn: (text) => ({ text: "Write ideas quickly without judging, group similar ones, pick 1–2, and break into tiny next steps.", tag: "Ideas helper", lang: "en-US" }) });
+registerHandler("trivia", {
+  keywords: ["trivia", "fact", "facts", "fun fact", "history", "historia", "curiosity", "interesting", "did you know", "ancient", "civilization", "space", "universe", "planet"],
+  priority: 1,
+  fn: handleTriviaIntent,
+});
 registerHandler("translate", { keywords: [/^translate\b/i, /^traduce\b/i, "translate", "traduce", "translate to spanish", "traduce a español", "español", "spanish"], fn: (text) => {
   if (/^translate\b/i.test(text)) {
     const phrase = text.slice(10).trim();
@@ -295,13 +474,12 @@ registerHandler("fallback", { keywords: [], fn: (text) => ({ text: "This is a fr
 
 function setAlarmFromRequest(userText) {
   const lower = userText.toLowerCase();
-  const timeMatch = lower.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  const timeMatch = lower.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
   if (!timeMatch) return null;
 
   const hour = Number(timeMatch[1]);
   const minute = Number(timeMatch[2] || 0);
   const period = timeMatch[3];
-  if (minute > 59 || (period && (hour < 1 || hour > 12)) || (!period && hour > 23)) return null;
   let alarmHour = hour;
 
   if (period === "pm" && alarmHour < 12) alarmHour += 12;
@@ -314,16 +492,15 @@ function setAlarmFromRequest(userText) {
   if (alarmTime <= now) alarmTime.setDate(alarmTime.getDate() + 1);
 
   const diff = alarmTime.getTime() - now.getTime();
-  const formattedAlarmTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}${period ? ` ${period.toUpperCase()}` : ""}`;
-  reminders.push({ text: `Alarm: ${formattedAlarmTime}`, createdAt: new Date() });
+  reminders.push({ text: `Alarm: ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`, createdAt: new Date() });
   renderPlanner();
 
   setTimeout(() => {
-    showBrowserNotification("Moesha alarm", `Alarm ringing at ${formattedAlarmTime}.`);
+    showBrowserNotification("Moesha alarm", `Alarm ringing at ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}.`);
   }, diff);
 
   return {
-    text: `Alarm set for ${formattedAlarmTime}.`,
+    text: `Alarm set for ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}.`,
     tag: "Alarm",
     lang: "en-US",
   };
@@ -364,6 +541,49 @@ function clearPlanner() {
   renderPlanner();
 }
 
+// Safely renders assistant/user text, converting ```fenced``` blocks into copyable code blocks
+// and newlines into <br>. Uses textContent/createTextNode only, so no HTML injection is possible.
+function appendTextSegment(container, segment) {
+  if (!segment) return;
+  const p = document.createElement("p");
+  p.className = "message-text";
+  const lines = segment.split("\n");
+  lines.forEach((line, i) => {
+    if (i > 0) p.appendChild(document.createElement("br"));
+    p.appendChild(document.createTextNode(line));
+  });
+  container.appendChild(p);
+}
+
+function renderMessageBody(container, text) {
+  const fenceRe = /```(\w+)?\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+  let hasContent = false;
+
+  while ((match = fenceRe.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      appendTextSegment(container, text.slice(lastIndex, match.index));
+      hasContent = true;
+    }
+    const code = document.createElement("pre");
+    code.className = "message-code";
+    code.textContent = match[2].replace(/\n$/, "");
+    container.appendChild(code);
+    hasContent = true;
+    lastIndex = fenceRe.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    appendTextSegment(container, text.slice(lastIndex));
+    hasContent = true;
+  }
+
+  if (!hasContent) {
+    appendTextSegment(container, text);
+  }
+}
+
 function appendMessage({ role, text, messageTagType }) {
   const article = document.createElement("article");
   article.className = `message message-${role}`;
@@ -389,20 +609,15 @@ function appendMessage({ role, text, messageTagType }) {
   if (role === "assistant") {
     const tag = document.createElement("span");
     tag.className = "message-tag";
-    tag.textContent = messageTagType || "Code · Health · History · Weather · Ideas · Writing · Finance · Trading";
+    tag.textContent = messageTagType || "Code · Health · Diet · Trivia · Weather · Ideas · Writing · Finance · Trading";
     meta.appendChild(tag);
   }
 
-  const body = document.createElement("p");
-  body.className = "message-text";
-  body.textContent = text;
-
   bubble.appendChild(meta);
-  bubble.appendChild(body);
+  renderMessageBody(bubble, text);
 
   article.appendChild(avatar);
   article.appendChild(bubble);
-
   chatWindow.appendChild(article);
 
   // Enhance any code blocks inside this new message
@@ -473,6 +688,240 @@ function enhanceCodeBlocks(container) {
   });
 }
 
+// -----------------------------
+// Trivia & fun facts
+// -----------------------------
+const TRIVIA_FACTS = [
+  { category: "history", text: "The Great Pyramid of Giza was the tallest man-made structure on Earth for over 3,800 years." },
+  { category: "history", text: "Cleopatra lived closer in time to the Moon landing than to the construction of the Great Pyramid." },
+  { category: "history", text: "Oxford University is older than the Aztec Empire—Oxford has been teaching since around 1096." },
+  { category: "history", text: "Ancient Rome had a form of concrete that has lasted over 2,000 years, partly thanks to volcanic ash." },
+  { category: "history", text: "The shortest war in recorded history was between Britain and Zanzibar in 1896, lasting under 45 minutes." },
+  { category: "history", text: "Vikings reached North America roughly 500 years before Christopher Columbus." },
+  { category: "history", text: "Ancient Egyptians used moldy bread as an early form of antibiotic on wounds." },
+  { category: "history", text: "The Library of Alexandria is believed to have held hundreds of thousands of scrolls before its decline." },
+  { category: "science", text: "A bolt of lightning is roughly five times hotter than the surface of the Sun." },
+  { category: "science", text: "Honey never spoils—archaeologists have found edible honey in 3,000-year-old Egyptian tombs." },
+  { category: "science", text: "Water can boil and freeze at the same time; it's called the triple point." },
+  { category: "science", text: "Octopuses have three hearts and blue, copper-based blood." },
+  { category: "science", text: "Bananas are naturally slightly radioactive because of their potassium content." },
+  { category: "science", text: "A single teaspoon of a neutron star would weigh about a billion tons." },
+  { category: "space", text: "A day on Venus is longer than its year—it rotates slower than it orbits the Sun." },
+  { category: "space", text: "There are more stars in the observable universe than grains of sand on every beach on Earth." },
+  { category: "space", text: "Neutron stars can spin hundreds of times per second." },
+  { category: "space", text: "The footprints left by Apollo astronauts on the Moon should last millions of years since there's no wind or water there." },
+  { category: "geography", text: "Russia spans 11 time zones, more than any other country." },
+  { category: "geography", text: "Africa is home to the world's largest hot desert (the Sahara) and one of its largest rainforests (the Congo Basin)." },
+  { category: "geography", text: "Mount Everest grows a few millimeters taller every year due to tectonic plate movement." },
+  { category: "geography", text: "The Pacific Ocean is so large it contains about half of the water on Earth's surface." },
+  { category: "animals", text: "A group of flamingos is called a 'flamboyance'." },
+  { category: "animals", text: "Elephants are one of the few animals that can recognize themselves in a mirror." },
+  { category: "animals", text: "Sea otters hold hands while sleeping so they don't drift apart." },
+  { category: "animals", text: "The mantis shrimp can see a much wider range of colors than humans, thanks to up to 16 types of color receptors." },
+  { category: "food", text: "Carrots were originally purple before orange varieties became popular in the Netherlands." },
+  { category: "food", text: "Chocolate was once used as currency by the Aztecs." },
+  { category: "food", text: "Apples float in water because they are about 25% air by volume." },
+  { category: "language", text: "The word 'set' has more definitions in English than any other word." },
+  { category: "language", text: "Shakespeare is credited with inventing or popularizing hundreds of English words still used today." },
+];
+
+let lastTriviaIndex = -1;
+
+function pickTriviaFact(category) {
+  const pool = category ? TRIVIA_FACTS.filter((f) => f.category === category) : TRIVIA_FACTS;
+  if (pool.length === 0) return null;
+  if (pool.length === 1) return pool[0];
+
+  let index;
+  do {
+    index = Math.floor(Math.random() * pool.length);
+  } while (pool[index] === TRIVIA_FACTS[lastTriviaIndex]);
+
+  const fact = pool[index];
+  lastTriviaIndex = TRIVIA_FACTS.indexOf(fact);
+  return fact;
+}
+
+function handleTriviaIntent(userText) {
+  const lower = userText.toLowerCase();
+  const categoryMap = [
+    { re: /histor|ancient|civiliz/i, category: "history" },
+    { re: /space|planet|star|universe|astronom/i, category: "space" },
+    { re: /science|scientific|chemistry|physics/i, category: "science" },
+    { re: /geograph|country|countries|ocean|mountain/i, category: "geography" },
+    { re: /animal|wildlife|creature/i, category: "animals" },
+    { re: /food|cook/i, category: "food" },
+    { re: /language|word|words/i, category: "language" },
+  ];
+  const matched = categoryMap.find((c) => c.re.test(lower));
+
+  const fact = pickTriviaFact(matched ? matched.category : null);
+  if (!fact) {
+    return { text: "I don't have a fact on that topic yet—try history, science, space, geography, animals, food, or language.", tag: "Trivia helper", lang: "en-US" };
+  }
+
+  const label = matched ? matched.category : fact.category;
+  return {
+    text: `Did you know? ${fact.text}\nAsk for "another" fact, or name a topic like history, science, space, or animals.`,
+    tag: `Trivia · ${label.charAt(0).toUpperCase() + label.slice(1)}`,
+    lang: "en-US",
+  };
+}
+
+// -----------------------------
+// Diet & nutrition logic
+// -----------------------------
+const MEAL_IDEAS = {
+  breakfast: ["Greek yogurt with berries and oats", "Veggie egg scramble with whole-grain toast", "Overnight oats with peanut butter and banana", "Tofu scramble with spinach and avocado"],
+  lunch: ["Grilled chicken salad with olive oil dressing", "Lentil soup with a side salad", "Quinoa bowl with roasted vegetables and chickpeas", "Turkey and hummus wrap with veggies"],
+  dinner: ["Baked salmon with steamed broccoli and rice", "Stir-fried tofu with mixed vegetables", "Lean beef or bean chili with brown rice", "Grilled fish tacos with cabbage slaw"],
+  snack: ["A handful of almonds and an apple", "Carrot sticks with hummus", "Cottage cheese with pineapple", "Protein shake with a banana"],
+};
+
+function pickRandom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function buildMealPlanReply() {
+  const plan = [
+    `Breakfast: ${pickRandom(MEAL_IDEAS.breakfast)}`,
+    `Lunch: ${pickRandom(MEAL_IDEAS.lunch)}`,
+    `Dinner: ${pickRandom(MEAL_IDEAS.dinner)}`,
+    `Snack: ${pickRandom(MEAL_IDEAS.snack)}`,
+  ];
+  return `Here's a simple one-day meal idea:\n${plan.join("\n")}\nAdjust portions to your calorie target, and swap ingredients for allergies or preferences.`;
+}
+
+// Extracts weight (kg), height (cm), age, and biological sex from free text for BMR/TDEE estimates
+function parseBodyStats(text) {
+  const lower = text.toLowerCase();
+
+  let weightKg = null;
+  const weightLbMatch = lower.match(/(\d+(?:\.\d+)?)\s*(lb|lbs|pounds?)\b/);
+  const weightKgMatch = lower.match(/(\d+(?:\.\d+)?)\s*(kg|kilograms?)\b/);
+  if (weightKgMatch) weightKg = Number(weightKgMatch[1]);
+  else if (weightLbMatch) weightKg = Number(weightLbMatch[1]) * 0.453592;
+
+  let heightCm = null;
+  const heightCmMatch = lower.match(/(\d+(?:\.\d+)?)\s*(cm|centimeters?)\b/);
+  const heightFtInMatch = lower.match(/(\d)\s*(?:ft|feet|')\s*(\d{1,2})?\s*(?:in|inches|")?\b/);
+  if (heightCmMatch) heightCm = Number(heightCmMatch[1]);
+  else if (heightFtInMatch) {
+    const feet = Number(heightFtInMatch[1]);
+    const inches = Number(heightFtInMatch[2] || 0);
+    heightCm = (feet * 12 + inches) * 2.54;
+  }
+
+  const ageMatch = lower.match(/(\d{1,3})\s*(?:years?\s*old|yo|y\/o|years)\b/);
+  const age = ageMatch ? Number(ageMatch[1]) : null;
+
+  const isMale = /\bmale\b|\bman\b|\bhombre\b/.test(lower) && !/\bfemale\b|\bwoman\b/.test(lower);
+  const isFemale = /\bfemale\b|\bwoman\b|\bmujer\b/.test(lower);
+
+  const activityMap = [
+    { re: /sedentary|little to no exercise/, factor: 1.2 },
+    { re: /light(ly)? active|1-3 days|light exercise/, factor: 1.375 },
+    { re: /moderate(ly)? active|3-5 days|moderate exercise/, factor: 1.55 },
+    { re: /very active|6-7 days|hard exercise/, factor: 1.725 },
+    { re: /extra active|athlete|physical job/, factor: 1.9 },
+  ];
+  const activity = activityMap.find((a) => a.re.test(lower));
+
+  return { weightKg, heightCm, age, isMale, isFemale, activityFactor: activity ? activity.factor : 1.375 };
+}
+
+function handleDietIntent(userText) {
+  const lower = userText.toLowerCase().trim();
+
+  // Calorie / calculator request with enough body stats -> compute BMR + TDEE (Mifflin-St Jeor)
+  if (/calorie|calories|bmr|tdee|how many calories|maintenance/i.test(lower)) {
+    const stats = parseBodyStats(lower);
+    if (stats.weightKg && stats.heightCm && stats.age) {
+      const sexOffset = stats.isFemale ? -161 : 5; // defaults to male formula unless female is specified
+      const bmr = 10 * stats.weightKg + 6.25 * stats.heightCm - 5 * stats.age + sexOffset;
+      const tdee = Math.round(bmr * stats.activityFactor);
+      const cut = Math.round(tdee - 500);
+      const bulk = Math.round(tdee + 300);
+      return {
+        text: `Estimated maintenance calories: ~${tdee} kcal/day.\nFor gradual fat loss: ~${cut} kcal/day.\nFor lean muscle gain: ~${bulk} kcal/day.\nAim for ~1.6–2.2g of protein per kg of bodyweight, and adjust after 2 weeks based on results.`,
+        tag: "Diet helper",
+        lang: "en-US",
+      };
+    }
+    return {
+      text: "I can estimate your daily calorie needs. Share your weight (kg or lbs), height (cm or ft/in), age, and sex/activity level—e.g. \"I'm a 30 year old male, 80kg, 180cm, moderately active\".",
+      tag: "Diet helper",
+      lang: "en-US",
+    };
+  }
+
+  if (/meal plan|meal idea|what should i eat|give me a meal/i.test(lower)) {
+    return { text: buildMealPlanReply(), tag: "Diet helper", lang: "en-US" };
+  }
+
+  if (/lose weight|fat loss|cut(ting)?\b/i.test(lower)) {
+    return {
+      text: "For fat loss: eat in a modest calorie deficit (~300–500 kcal below maintenance), prioritize protein (1.6–2.2g/kg) to preserve muscle, keep fiber-rich veggies at most meals, and stay consistent with sleep and light daily movement.",
+      tag: "Diet helper",
+      lang: "en-US",
+    };
+  }
+
+  if (/gain muscle|bulk(ing)?|build muscle/i.test(lower)) {
+    return {
+      text: "For muscle gain: eat in a small calorie surplus (~200–300 kcal above maintenance), get 1.6–2.2g protein per kg bodyweight, spread protein across 3–4 meals, and pair it with progressive resistance training.",
+      tag: "Diet helper",
+      lang: "en-US",
+    };
+  }
+
+  if (/vegan/i.test(lower)) {
+    return {
+      text: "Vegan diet tips: combine legumes, grains, and nuts for complete protein; consider B12, iron, and omega-3 (algae oil) supplementation; and use tofu, tempeh, lentils, or seitan as protein anchors each meal.",
+      tag: "Diet helper",
+      lang: "en-US",
+    };
+  }
+
+  if (/vegetarian/i.test(lower)) {
+    return {
+      text: "Vegetarian diet tips: include eggs and dairy for easy protein and B12, add legumes and whole grains at meals, and watch iron intake by pairing plant iron sources with vitamin C.",
+      tag: "Diet helper",
+      lang: "en-US",
+    };
+  }
+
+  if (/\bketo\b/i.test(lower)) {
+    return {
+      text: "Keto basics: aim for roughly 70% fat, 25% protein, 5% carbs (under ~20–30g net carbs/day). Prioritize electrolytes (sodium, potassium, magnesium) in the first week to avoid the \"keto flu\".",
+      tag: "Diet helper",
+      lang: "en-US",
+    };
+  }
+
+  if (/protein/i.test(lower)) {
+    return {
+      text: "A practical protein target is 1.6–2.2g per kg of bodyweight per day, spread across 3–4 meals. Good sources: chicken, fish, eggs, Greek yogurt, tofu, tempeh, and legumes.",
+      tag: "Diet helper",
+      lang: "en-US",
+    };
+  }
+
+  if (/dieta|nutrición/i.test(lower)) {
+    return {
+      text: "Consejos generales de nutrición: prioriza proteína magra, verduras en cada comida, granos integrales, y mantente hidratado. Ajusta las porciones según tu objetivo (perder grasa, mantener o ganar músculo).",
+      tag: "Ayuda de dieta",
+      lang: "es-ES",
+    };
+  }
+
+  return {
+    text: "I can help with diet and nutrition: ask me to estimate your daily calories, suggest a meal plan, or give tips for weight loss, muscle gain, keto, vegan, or vegetarian eating.",
+    tag: "Diet helper",
+    lang: "en-US",
+  };
+}
+
 function getCurrentDateLabel() {
   return new Intl.DateTimeFormat("en", {
     weekday: "long",
@@ -521,7 +970,7 @@ function handlePlannerIntent(userText) {
   }
 
   if (/(take|add|save|make)\s+(a|an)?\s*note|\bnote\b/i.test(lower)) {
-    const noteText = userText.trim()
+    const noteText = lower
       .replace(/^(take|add|save|make)\s+(a|an)?\s*note\s*/i, "")
       .replace(/^note\s*/i, "")
       .trim();
@@ -544,8 +993,9 @@ function handlePlannerIntent(userText) {
   }
 
   if (/remind|reminder/i.test(lower)) {
-    const reminderText = userText.trim()
+    const reminderText = lower
       .replace(/^(remind me|add reminder|set reminder)\s*/i, "")
+      .replace(/^to\s+/i, "")
       .replace(/reminder\s*/i, "")
       .trim();
     const reminderValue = reminderText || "General reminder";
@@ -588,7 +1038,7 @@ function handlePlannerIntent(userText) {
   }
 
   if (/weather|forecast/i.test(lower)) {
-    const cityMatch = lower.match(/(?:in|for|at)\s+([a-zA-Z ]+?)(?=\s+(?:today|tomorrow|now|please)\b|[?.!,]|$)/i);
+    const cityMatch = lower.match(/(?:in|for|at)\s+([a-zA-Z ]+)/i);
     const city = cityMatch ? cityMatch[1].trim() : "your area";
     return {
       text: getWeatherSummary(city),
@@ -609,27 +1059,114 @@ function handlePlannerIntent(userText) {
   return null;
 }
 
-// Generates a simple mock response and topic tag based on registered handlers
+// Generates a simple mock response and topic tag based on registered handlers.
+// Remembers the last handler used so short follow-ups ("more", "another", "otra")
+// can continue the same topic instead of falling back to a generic reply.
+let lastHandlerName = null;
+const FOLLOW_UP_RE = /^(more|another|again|other one|one more|otra|otro|más|de nuevo)\.?!?$/i;
+
 function generateMockReply(userText) {
-  const res = dispatchToHandlers(userText);
+  const trimmed = userText.trim();
+  const isFollowUp = FOLLOW_UP_RE.test(trimmed) && lastHandlerName;
+  const followUpHandler = isFollowUp ? handlers.find((h) => h.name === lastHandlerName) : null;
+
+  const res = followUpHandler
+    ? { ...(followUpHandler.fn(userText) || {}), handler: lastHandlerName, confidence: 1 }
+    : dispatchToHandlers(userText);
+
+  if (res.handler) lastHandlerName = res.handler;
+
   return {
     text: res.text || res.reply || "",
     tag: res.tag || res.handler || "Multi-domain helper",
     lang: res.lang || "en-US",
-    confidence: typeof res.confidence === "number" ? res.confidence : res.confidence ? res.confidence : 1,
+    confidence: typeof res.confidence === "number" ? res.confidence : 1,
     handler: res.handler || null,
   };
 }
 
 
 
+const timerInput = document.getElementById("timer-input");
+const timerDisplay = document.getElementById("timer-display");
+const timerStartBtn = document.getElementById("timer-start-btn");
+const timerPauseBtn = document.getElementById("timer-pause-btn");
+const timerResetBtn = document.getElementById("timer-reset-btn");
+
+try {
+  const savedTimer = JSON.parse(localStorage.getItem(TIMER_KEY) || "null");
+  if (savedTimer && savedTimer.remainingMs > 0) {
+    timerState.totalMs = Number(savedTimer.totalMs) || 0;
+    timerState.remainingMs = Number(savedTimer.remainingMs) || 0;
+  }
+} catch {
+  // Use the empty timer when saved state is unavailable.
+}
+
+window.addEventListener("beforeunload", saveTimerState);
+
 loadPlannerState();
 renderPlanner();
 updateElevenLabsStatus();
-const pendingResponseTimers = new Set();
+updateTimerDisplay();
+updateTimerButtons();
+
+if (timerInput) {
+  timerInput.addEventListener("input", () => {
+    const parsed = parseTimerDuration(timerInput.value);
+    if (!parsed || timerState.isRunning) return;
+    timerState.totalMs = parsed.totalMs;
+    timerState.remainingMs = parsed.totalMs;
+    updateTimerDisplay();
+    updateTimerButtons();
+    saveTimerState();
+  });
+
+  timerInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const parsed = setTimerFromInput(timerInput.value);
+      if (parsed) {
+        const reply = parsed.text;
+        appendMessage({ role: "assistant", text: reply, messageTagType: "Timer" });
+        speakText(reply, "en-US");
+      }
+    }
+  });
+}
+
+if (timerStartBtn) {
+  timerStartBtn.addEventListener("click", () => {
+    const timerReply = setTimerFromInput(timerInput ? timerInput.value.trim() : "");
+    if (timerReply && !timerState.isRunning) {
+      appendMessage({ role: "assistant", text: timerReply.text, messageTagType: "Timer" });
+      speakText(timerReply.text, "en-US");
+    }
+    startTimerFromWidget();
+  });
+}
+
+if (timerPauseBtn) {
+  timerPauseBtn.addEventListener("click", () => {
+    pauseTimerFromWidget();
+  });
+}
+
+if (timerResetBtn) {
+  timerResetBtn.addEventListener("click", () => {
+    resetTimerFromWidget();
+  });
+}
 
 // SECTION: Event Handlers
 if (chatForm && userInput && chatWindow) {
+  userInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      chatForm.requestSubmit();
+    }
+  });
+
   chatForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const text = userInput.value.trim();
@@ -641,13 +1178,13 @@ if (chatForm && userInput && chatWindow) {
     }
 
     appendMessage({ role: "user", text, messageTagType: "You" });
+    saveThread(text);
     userInput.value = "";
 
     const typingNode = showTypingIndicator();
 
     // Simulate network / thinking delay
-    const responseTimer = setTimeout(() => {
-      pendingResponseTimers.delete(responseTimer);
+    setTimeout(() => {
       typingNode.querySelector(".message-avatar")?.classList.remove("is-speaking");
       typingNode.remove();
       const res = generateMockReply(text);
@@ -657,7 +1194,7 @@ if (chatForm && userInput && chatWindow) {
       const confidence = typeof res.confidence === "number" ? res.confidence : 1;
 
       // Low-confidence clarification flow
-      if (confidence < 0.5 && res.handler && res.handler !== "planner" && res.handler !== "fallback") {
+      if (confidence < 0.5 && res.handler && !["planner", "fallback", "coding", "translate", "greeting"].includes(res.handler)) {
         const suggestion = `I think you might be asking about ${res.handler}.`;
         const clarification = `${suggestion} Can you clarify or give more detail so I can help better?`;
         appendMessage({ role: "assistant", text: clarification, messageTagType: "Clarification" });
@@ -667,7 +1204,6 @@ if (chatForm && userInput && chatWindow) {
         speakText(replyText, lang || "en-US");
       }
     }, 700);
-    pendingResponseTimers.add(responseTimer);
   });
 }
 
@@ -686,14 +1222,13 @@ if (sampleQuestionBtn && exampleList && userInput) {
 // New chat button - clears chat and restores initial assistant intro
 if (newChatBtn && chatWindow) {
   newChatBtn.addEventListener("click", () => {
-    pendingResponseTimers.forEach((timer) => clearTimeout(timer));
-    pendingResponseTimers.clear();
     const initial = chatWindow.querySelector("[data-initial-message='true']");
     chatWindow.innerHTML = "";
     if (initial) {
       chatWindow.appendChild(initial.cloneNode(true));
     }
     chatWindow.scrollTop = 0;
+    lastHandlerName = null;
   });
 }
 
@@ -749,7 +1284,7 @@ if (micBtn && userInput) {
     userInput.focus();
 
     if (!recognition) {
-      // Browser does not support speech recognition
+      showToast("Voice input is not supported in this browser.");
       return;
     }
 
@@ -793,6 +1328,10 @@ if (quickHealthBtn) {
   quickHealthBtn.addEventListener("click", () => insertPrefix("Health"));
 }
 
+if (quickDietBtn) {
+  quickDietBtn.addEventListener("click", () => insertPrefix("Diet"));
+}
+
 if (quickFinanceBtn) {
   quickFinanceBtn.addEventListener("click", () => insertPrefix("Finance"));
 }
@@ -801,13 +1340,17 @@ if (quickIdeasBtn) {
   quickIdeasBtn.addEventListener("click", () => insertPrefix("Ideas"));
 }
 
+if (quickTriviaBtn) {
+  quickTriviaBtn.addEventListener("click", () => insertPrefix("Trivia"));
+}
+
 // Voice toggle
 if (voiceToggle) {
   voiceToggle.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     isVoiceEnabled = target.checked;
-    writeStorage(VOICE_ENABLED_KEY, String(isVoiceEnabled));
+    localStorage.setItem(VOICE_ENABLED_KEY, String(isVoiceEnabled));
     if (!isVoiceEnabled && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -819,7 +1362,7 @@ if (elevenLabsStatus) {
     const key = prompt("Enter your ElevenLabs API key", elevenLabsApiKey || "");
     if (key === null) return;
     elevenLabsApiKey = key.trim();
-    writeStorage(ELEVENLABS_KEY, elevenLabsApiKey);
+    localStorage.setItem(ELEVENLABS_KEY, elevenLabsApiKey);
     updateElevenLabsStatus();
   });
 }
@@ -844,3 +1387,112 @@ if (exampleList && userInput) {
     userInput.focus();
   });
 }
+
+const clearThreadsButton = document.getElementById("clear-threads");
+const threadList = document.getElementById("thread-list");
+function renderSavedThreads() {
+  if (!threadList) return;
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem(THREADS_KEY) || "[]"); } catch { saved = []; }
+  if (!saved.length) return;
+  threadList.innerHTML = "";
+  saved.slice(0, 3).forEach((thread, index) => {
+    const item = document.createElement("button");
+    item.className = `thread-item${index === 0 ? " is-selected" : ""}`;
+    item.type = "button";
+    item.innerHTML = '<span class="thread-mark coral">✦</span><span><strong></strong><small>Saved conversation</small></span><span class="thread-arrow">›</span>';
+    item.querySelector("strong").textContent = thread.title || "Saved conversation";
+    threadList.appendChild(item);
+  });
+}
+renderSavedThreads();
+if (clearThreadsButton && threadList) {
+  clearThreadsButton.addEventListener("click", () => {
+    localStorage.removeItem(THREADS_KEY);
+    threadList.innerHTML = '<p class="empty-threads">No saved threads yet.</p>';
+  });
+}
+
+document.querySelectorAll(".starter[data-example]").forEach((button) => {
+  button.addEventListener("click", () => {
+    userInput.value = button.dataset.example || "";
+    userInput.focus();
+  });
+});
+
+document.querySelectorAll(".nav-item").forEach((item) => {
+  item.addEventListener("click", () => {
+    switchView(item.dataset.view || "workspace");
+  });
+});
+
+function switchView(view) {
+  const contentGrid = document.querySelector(".content-grid");
+  const libraryView = document.getElementById("library-view");
+  const toolsView = document.getElementById("tools-view");
+  const plannerView = document.getElementById("planner-view");
+  const currentViewLabel = document.getElementById("current-view-label");
+  const labels = { workspace: "Workspace", planner: "Planner", library: "Library", tools: "Tools" };
+  document.querySelectorAll(".nav-item").forEach((navItem) => navItem.classList.toggle("is-active", navItem.dataset.view === view));
+  if (contentGrid) contentGrid.hidden = view === "library" || view === "tools" || view === "planner";
+  if (libraryView) libraryView.hidden = view !== "library";
+  if (toolsView) toolsView.hidden = view !== "tools";
+  if (plannerView) plannerView.hidden = view !== "planner";
+  if (currentViewLabel) currentViewLabel.textContent = labels[view] || "Workspace";
+  if (view === "planner") renderPlannerView();
+  if (view === "workspace" || view === "planner") window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function renderPlannerView() {
+  const list = document.getElementById("planner-view-list");
+  if (!list) return;
+  list.innerHTML = "";
+  [...notes.slice(-4), ...reminders.slice(-4)].forEach((entry) => {
+    const item = document.createElement("li");
+    item.textContent = entry.text || "Planner item";
+    list.appendChild(item);
+  });
+  if (!list.children.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "No notes or reminders yet.";
+    list.appendChild(empty);
+  }
+}
+
+document.querySelectorAll("[data-view]").forEach((button) => {
+  if (!button.classList.contains("nav-item")) button.addEventListener("click", () => switchView(button.dataset.view));
+});
+
+document.getElementById("greeting-label").textContent = `Good morning, Austin`;
+const dateLabel = document.querySelector(".intro-block .eyebrow");
+if (dateLabel) dateLabel.textContent = getDateLabel();
+
+document.getElementById("notifications-button")?.addEventListener("click", () => showToast("You are all caught up."));
+document.getElementById("profile-button")?.addEventListener("click", () => showToast("Personal space: Austin"));
+document.querySelector(".icon-button[aria-label='Settings']")?.addEventListener("click", () => showToast("Settings are coming to this prototype.") );
+
+const focusTasks = document.querySelectorAll("#focus-tasks input");
+const focusProgressBar = document.querySelector("#progress-bar");
+const focusProgressCount = document.querySelector("#progress-count");
+const focusTasksKey = "moesha-redesign-focus-tasks-v2";
+
+function updateFocusProgress() {
+  const completed = [...focusTasks].filter((task) => task.checked).length;
+  focusProgressCount.textContent = `${completed} / ${focusTasks.length}`;
+  focusProgressBar.style.width = `${(completed / focusTasks.length) * 100}%`;
+  try {
+    localStorage.setItem(focusTasksKey, JSON.stringify([...focusTasks].map((task) => task.checked)));
+  } catch {
+    // Keep the progress in memory when storage is unavailable.
+  }
+}
+
+try {
+  const savedFocusTasks = JSON.parse(localStorage.getItem(focusTasksKey) || "[]");
+  focusTasks.forEach((task, index) => { task.checked = savedFocusTasks[index] === true; });
+} catch {
+  // Keep the default unchecked state when storage is unavailable.
+}
+
+focusTasks.forEach((task) => task.addEventListener("change", updateFocusProgress));
+updateFocusProgress();

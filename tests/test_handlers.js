@@ -110,3 +110,15 @@ assert.equal(dispatchToHandlers('Please rewrite this paragraph professionally.')
 assert.equal(dispatchToHandlers('Explain a candlestick chart pattern.').handler, 'trading');
 assert.equal(dispatchToHandlers('Why is my CSS not working?').handler, 'coding');
 assert.equal(dispatchToHandlers('Why is my CSS not working?').confidence, 1);
+
+const fs = require('node:fs');
+const path = require('node:path');
+const appMain = fs.readFileSync(path.join(__dirname, '..', 'Desktop', 'main.js'), 'utf8');
+const hasIconResolver = /resolveAppIcon\(|Moesha\.png/.test(appMain);
+assert.equal(hasIconResolver, true);
+
+const validIconPaths = [
+  path.join(__dirname, '..', 'img', 'Moesha.png'),
+  path.join(__dirname, '..', 'Desktop', 'Moesha.ico'),
+];
+assert.equal(validIconPaths.some((candidate) => fs.existsSync(candidate)), true);
