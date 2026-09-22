@@ -1,58 +1,293 @@
 // SECTION: DOM references
-const voiceToggle = document.getElementById("voice-toggle");
-const chatWindow = document.getElementById("chat-window");
-const chatForm = document.getElementById("chat-form");
-const userInput = document.getElementById("user-input");
-const newChatBtn = document.getElementById("new-chat-btn");
-const sampleQuestionBtn = document.getElementById("sample-question-btn");
-const quickHtmlBtn = document.getElementById("quick-html");
-const quickCssBtn = document.getElementById("quick-css");
-const quickJsBtn = document.getElementById("quick-js");
-const quickHealthBtn = document.getElementById("quick-health");
-const quickDietBtn = document.getElementById("quick-diet");
-const quickFinanceBtn = document.getElementById("quick-finance");
-const quickIdeasBtn = document.getElementById("quick-ideas");
-const quickTriviaBtn = document.getElementById("quick-trivia");
-const micBtn = document.getElementById("mic-btn");
-const exampleList = document.getElementById("example-list");
-const plannerList = document.getElementById("planner-list");
-const clearPlannerBtn = document.getElementById("clear-planner-btn");
+const voiceToggle = typeof document !== "undefined" ? document.getElementById("voice-toggle") : null;
+const chatWindow = typeof document !== "undefined" ? document.getElementById("chat-window") : null;
+const chatForm = typeof document !== "undefined" ? document.getElementById("chat-form") : null;
+const userInput = typeof document !== "undefined" ? document.getElementById("user-input") : null;
+const newChatBtn = typeof document !== "undefined" ? document.getElementById("new-chat-btn") : null;
+const sampleQuestionBtn = typeof document !== "undefined" ? document.getElementById("sample-question-btn") : null;
+const quickHtmlBtn = typeof document !== "undefined" ? document.getElementById("quick-html") : null;
+const quickCssBtn = typeof document !== "undefined" ? document.getElementById("quick-css") : null;
+const quickJsBtn = typeof document !== "undefined" ? document.getElementById("quick-js") : null;
+const quickHealthBtn = typeof document !== "undefined" ? document.getElementById("quick-health") : null;
+const quickDietBtn = typeof document !== "undefined" ? document.getElementById("quick-diet") : null;
+const quickFinanceBtn = typeof document !== "undefined" ? document.getElementById("quick-finance") : null;
+const quickIdeasBtn = typeof document !== "undefined" ? document.getElementById("quick-ideas") : null;
+const quickTriviaBtn = typeof document !== "undefined" ? document.getElementById("quick-trivia") : null;
+const micBtn = typeof document !== "undefined" ? document.getElementById("mic-btn") : null;
+const exampleList = typeof document !== "undefined" ? document.getElementById("example-list") : null;
+const plannerList = typeof document !== "undefined" ? document.getElementById("planner-list") : null;
+const clearPlannerBtn = typeof document !== "undefined" ? document.getElementById("clear-planner-btn") : null;
+const notificationsButton = typeof document !== "undefined" ? document.getElementById("notifications-button") : null;
+const notificationsPanel = typeof document !== "undefined" ? document.getElementById("notifications-panel") : null;
+const notificationsList = typeof document !== "undefined" ? document.getElementById("notifications-list") : null;
 const assistantAvatarSrc = "img/Moesha.png";
 const STORAGE_KEY = "moesha-redesign-planner-v1";
+const TASKS_KEY = "moesha-redesign-tasks-v1";
+const LIBRARY_KEY = "moesha-redesign-library-v1";
 const THREADS_KEY = "moesha-redesign-threads-v1";
+const ACTIVE_THREAD_KEY = "moesha-redesign-active-thread-v1";
 const ELEVENLABS_KEY = "moesha-redesign-elevenlabs-key";
 const ELEVENLABS_VOICE_ID = "moesha-redesign-elevenlabs-voice";
 const VOICE_ENABLED_KEY = "moesha-redesign-voice-enabled";
 const TIMER_KEY = "moesha-redesign-timer-v1";
+const TIMER_SOUND_KEY = "moesha-redesign-timer-sound-v1";
+const NOTIFICATIONS_KEY = "moesha-redesign-notifications-v1";
 const notes = [];
 const reminders = [];
+const tasks = [];
+
+const NOTIFICATION_TEMPLATES = [
+  { title: "Focus check-in", body: "Your momentum streak is still moving. Pick one next step and keep going.", type: "focus" },
+  { title: "Voice assistant", body: "Moesha voice is ready when you want to speak instead of type.", type: "voice" },
+  { title: "Workspace update", body: "A fresh thread has been saved in your recent activity.", type: "workspace" },
+  { title: "Planner reminder", body: "Your next step is waiting in the planner area.", type: "planner" },
+];
+
 function readStorage(key, fallback = "") {
+  if (typeof localStorage === "undefined") return fallback;
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
 }
 
 let elevenLabsApiKey = readStorage(ELEVENLABS_KEY);
 let elevenLabsVoiceId = readStorage(ELEVENLABS_VOICE_ID);
 let isVoiceEnabled = readStorage(VOICE_ENABLED_KEY) === "true";
-const elevenLabsStatus = document.getElementById("elevenlabs-status");
+let isTimerSoundEnabled = readStorage(TIMER_SOUND_KEY) !== "false";
+const elevenLabsStatus = typeof document !== "undefined" ? document.getElementById("elevenlabs-status") : null;
+
+function getUnreadNotificationCount(items = []) {
+  if (!Array.isArray(items)) return 0;
+  return items.filter((item) => item && item.unread === true).length;
+}
+
+function getNotificationSeed() {
+  return NOTIFICATION_TEMPLATES.map((template, index) => ({
+    id: `notification-${index + 1}`,
+    title: template.title,
+    body: template.body,
+    type: template.type,
+    time: index === 0 ? "just now" : `${index + 1}h ago`,
+    unread: index === 0,
+  }));
+}
+
+function loadNotifications() {
+  const saved = readStorage(NOTIFICATIONS_KEY);
+  if (!saved) return getNotificationSeed();
+  try {
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed) || !parsed.length) return getNotificationSeed();
+    return parsed;
+  } catch (error) {
+    console.warn("Notifications could not be loaded", error);
+    return getNotificationSeed();
+  }
+}
+
+const notifications = loadNotifications();
+
+function storeNotifications() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
+  } catch (error) {
+    console.warn("Notifications could not be saved", error);
+  }
+}
+
+function renderNotificationBadge() {
+  if (!notificationsButton) return;
+  const unread = getUnreadNotificationCount(notifications);
+  const badge = notificationsButton.querySelector(".notification-badge");
+  if (unread > 0) {
+    if (!badge) {
+      const element = document.createElement("span");
+      element.className = "notification-badge";
+      element.textContent = String(unread);
+      notificationsButton.appendChild(element);
+    } else {
+      badge.textContent = String(unread);
+      badge.hidden = false;
+    }
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+function renderNotificationsPanel() {
+  if (!notificationsList) return;
+  const unread = getUnreadNotificationCount(notifications);
+  notificationsList.innerHTML = "";
+
+  if (!notifications.length) {
+    const empty = document.createElement("div");
+    empty.className = "notification-empty";
+    empty.textContent = "No notifications yet.";
+    notificationsList.appendChild(empty);
+    return;
+  }
+
+  notifications.forEach((notification) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `notification-item${notification.unread ? " is-unread" : ""}`;
+    item.setAttribute("data-notification-id", notification.id || String(Math.random()));
+    item.innerHTML = `
+      <span class="notification-status" aria-hidden="true"></span>
+      <span class="notification-copy">
+        <strong>${(notification.title || "Moesha update").replace(/</g, "&lt;")}</strong>
+        <small>${(notification.body || "").replace(/</g, "&lt;")}</small>
+      </span>
+      <span class="notification-time">${notification.time || "just now"}</span>
+    `;
+    item.addEventListener("click", () => {
+      if (notification.unread) {
+        markNotificationAsRead(notification.id);
+      }
+      showToast(notification.title || "Moesha update");
+    });
+    notificationsList.appendChild(item);
+  });
+
+  const summary = notificationsPanel?.querySelector(".notifications-summary");
+  if (summary) {
+    summary.textContent = unread > 0 ? `${unread} unread notification${unread === 1 ? "" : "s"}` : "You are all caught up";
+  }
+}
+
+function markNotificationAsRead(id) {
+  const target = notifications.find((notification) => notification.id === id);
+  if (!target) return;
+  target.unread = false;
+  storeNotifications();
+  renderNotificationBadge();
+  renderNotificationsPanel();
+}
+
+function markAllNotificationsRead() {
+  notifications.forEach((notification) => {
+    notification.unread = false;
+  });
+  storeNotifications();
+  renderNotificationBadge();
+  renderNotificationsPanel();
+}
+
+function toggleNotificationsPanel() {
+  if (!notificationsPanel) return;
+  const isOpen = !notificationsPanel.hidden;
+  notificationsPanel.hidden = isOpen;
+  if (!isOpen) {
+    markAllNotificationsRead();
+  }
+}
+
+function addNotification({ title, body, type = "workspace", time = "just now", unread = true } = {}) {
+  const entry = {
+    id: `notification-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    title: title || "Moesha update",
+    body: body || "Your workspace is ready.",
+    type,
+    time,
+    unread,
+  };
+  notifications.unshift(entry);
+  notifications.splice(8);
+  storeNotifications();
+  renderNotificationBadge();
+  renderNotificationsPanel();
+  return entry;
+}
+
+function showNotificationsPanel() {
+  if (!notificationsPanel) return;
+  notificationsPanel.hidden = false;
+  markAllNotificationsRead();
+}
 
 function loadPlannerState() {
+  if (typeof localStorage === "undefined") return;
+
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return;
+    if (!saved) {
+      const savedTasks = localStorage.getItem(TASKS_KEY);
+      if (!savedTasks) return;
+      const parsedTasks = JSON.parse(savedTasks);
+      if (Array.isArray(parsedTasks)) tasks.push(...parsedTasks);
+      return;
+    }
+
     const parsed = JSON.parse(saved);
     if (Array.isArray(parsed.notes)) notes.push(...parsed.notes);
     if (Array.isArray(parsed.reminders)) reminders.push(...parsed.reminders);
+    if (Array.isArray(parsed.tasks)) tasks.push(...parsed.tasks);
+
+    if (!parsed.tasks && typeof localStorage !== "undefined") {
+      const legacyTasks = localStorage.getItem(TASKS_KEY);
+      if (legacyTasks) {
+        const parsedLegacyTasks = JSON.parse(legacyTasks);
+        if (Array.isArray(parsedLegacyTasks)) tasks.push(...parsedLegacyTasks);
+      }
+    }
   } catch (error) {
     console.warn("Planner storage could not be loaded", error);
   }
 }
 
 function savePlannerState() {
+  if (typeof localStorage === "undefined") return;
+
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ notes, reminders }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ notes, reminders, tasks }));
+    localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
   } catch (error) {
     console.warn("Planner storage could not be saved", error);
   }
+}
+
+function getPlannerSnapshot() {
+  return {
+    notes: [...notes],
+    reminders: [...reminders],
+    tasks: [...tasks],
+  };
+}
+
+function addTask({ text, priority = "normal", due = "", completed = false } = {}) {
+  const cleanedText = String(text || "").trim();
+  if (!cleanedText) return null;
+
+  const task = {
+    id: `task-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    text: cleanedText,
+    priority: String(priority || "normal").toLowerCase(),
+    due: String(due || "").trim(),
+    completed: Boolean(completed),
+    createdAt: new Date().toISOString(),
+  };
+
+  tasks.push(task);
+  savePlannerState();
+  renderPlanner();
+  return task;
+}
+
+function toggleTask(taskId) {
+  const task = tasks.find((entry) => entry.id === taskId);
+  if (!task) return null;
+  task.completed = !task.completed;
+  savePlannerState();
+  renderPlanner();
+  return task;
+}
+
+function removeTask(taskId) {
+  const index = tasks.findIndex((entry) => entry.id === taskId);
+  if (index === -1) return null;
+  const [removed] = tasks.splice(index, 1);
+  savePlannerState();
+  renderPlanner();
+  return removed;
 }
 
 function getDateLabel() {
@@ -68,13 +303,87 @@ function showToast(message) {
   showToast.timeoutId = window.setTimeout(() => { toast.hidden = true; }, 2800);
 }
 
+let activeThreadId = readStorage(ACTIVE_THREAD_KEY, null);
+
 function saveThread(prompt) {
+  if (typeof localStorage === "undefined") return null;
+
   try {
     const saved = JSON.parse(localStorage.getItem(THREADS_KEY) || "[]");
-    const threads = [{ title: prompt.slice(0, 36), createdAt: new Date().toISOString() }, ...saved].slice(0, 8);
+    const threads = Array.isArray(saved) ? saved : [];
+    let thread = threads.find((entry) => entry.id === activeThreadId);
+    if (!thread) {
+      thread = { id: `thread-${Date.now()}-${Math.random().toString(16).slice(2)}`, title: prompt.slice(0, 36), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] };
+      activeThreadId = thread.id;
+      localStorage.setItem(ACTIVE_THREAD_KEY, activeThreadId);
+      threads.unshift(thread);
+    }
+    thread.messages ||= [];
+    thread.messages.push({ role: "user", text: prompt, createdAt: new Date().toISOString() });
+    thread.updatedAt = new Date().toISOString();
+    threads.splice(8);
     localStorage.setItem(THREADS_KEY, JSON.stringify(threads));
+    saveThreadToLibrary(thread);
+    return thread;
   } catch (error) {
     console.warn("Redesign threads could not be saved", error);
+  }
+}
+
+function getLibrarySnapshot() {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(LIBRARY_KEY) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch (error) {
+    console.warn("Library snapshot could not be loaded", error);
+    return [];
+  }
+}
+
+function saveThreadToLibrary(thread) {
+  if (!thread || typeof thread !== "object") return null;
+  const normalizedThread = {
+    id: thread.id || `library-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    title: (thread.title || "Saved conversation").trim().slice(0, 80) || "Saved conversation",
+    createdAt: thread.createdAt || new Date().toISOString(),
+    updatedAt: thread.updatedAt || new Date().toISOString(),
+    messages: Array.isArray(thread.messages) ? thread.messages.map((message) => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      text: String(message.text || ""),
+      tag: message.tag || "Saved",
+      createdAt: message.createdAt || new Date().toISOString(),
+    })) : [],
+  };
+
+  if (typeof localStorage === "undefined") return normalizedThread;
+
+  try {
+    const saved = getLibrarySnapshot();
+    const existingIndex = saved.findIndex((entry) => entry.id === normalizedThread.id);
+    if (existingIndex >= 0) saved.splice(existingIndex, 1);
+    saved.unshift(normalizedThread);
+    const trimmed = saved.slice(0, 12);
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(trimmed));
+    return normalizedThread;
+  } catch (error) {
+    console.warn("Library could not be saved", error);
+    return normalizedThread;
+  }
+}
+
+function saveAssistantMessage(text, messageTagType) {
+  if (!activeThreadId) return;
+  try {
+    const threads = JSON.parse(localStorage.getItem(THREADS_KEY) || "[]");
+    const thread = threads.find((entry) => entry.id === activeThreadId);
+    if (!thread) return;
+    thread.messages ||= [];
+    thread.messages.push({ role: "assistant", text, tag: messageTagType, createdAt: new Date().toISOString() });
+    thread.updatedAt = new Date().toISOString();
+    localStorage.setItem(THREADS_KEY, JSON.stringify(threads));
+  } catch (error) {
+    console.warn("Assistant message could not be saved", error);
   }
 }
 
@@ -173,6 +482,12 @@ function showBrowserNotification(title, body) {
   }
 }
 
+function notifyUser(title, body, type = "workspace") {
+  addNotification({ title, body, type });
+  showToast(body);
+  showBrowserNotification(title, body);
+}
+
 function parseTimerDuration(userText) {
   if (typeof userText !== "string") return null;
 
@@ -249,6 +564,40 @@ function saveTimerState() {
   }
 }
 
+function updateTimerSoundButton() {
+  if (!timerSoundBtn) return;
+  timerSoundBtn.textContent = `Sound: ${isTimerSoundEnabled ? "on" : "off"}`;
+  timerSoundBtn.setAttribute("aria-pressed", String(isTimerSoundEnabled));
+}
+
+function playTimerSound() {
+  if (!isTimerSoundEnabled || typeof window === "undefined") return;
+  if (typeof Audio !== "undefined") {
+    const tone = new Audio();
+    const context = tone.ownerDocument?.defaultView?.AudioContext || tone.ownerDocument?.defaultView?.webkitAudioContext;
+    if (context) {
+      const audioContext = new context();
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "triangle";
+      oscillator.frequency.value = 880;
+      gain.gain.value = 0.09;
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.22);
+      return;
+    }
+  }
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance("Timer complete");
+    utterance.volume = 0.75;
+    utterance.rate = 1.2;
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
 function setTimerFromInput(value) {
   const parsed = parseTimerDuration(value || "");
   if (!parsed) return null;
@@ -322,8 +671,10 @@ function startTimerFromWidget() {
         saveTimerState();
         updateTimerButtons();
         updateTimerDisplay();
-        showBrowserNotification("Moesha timer", "Your timer is complete.");
-        speakText("Your timer is complete.", "en-US");
+        const timerMessage = "Your timer is complete.";
+        if (isTimerSoundEnabled) playTimerSound();
+        notifyUser("Moesha timer", timerMessage, "planner");
+        speakText(timerMessage, "en-US");
       }
     }, 1000);
   }
@@ -364,6 +715,61 @@ function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizeForKeywordMatch(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshteinDistance(a, b) {
+  const rows = Array.from({ length: b.length + 1 }, () => Array(a.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i += 1) rows[0][i] = i;
+  for (let j = 0; j <= b.length; j += 1) rows[j][0] = j;
+
+  for (let j = 1; j <= b.length; j += 1) {
+    for (let i = 1; i <= a.length; i += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      rows[j][i] = Math.min(
+        rows[j - 1][i] + 1,
+        rows[j][i - 1] + 1,
+        rows[j - 1][i - 1] + cost,
+      );
+    }
+  }
+
+  return rows[b.length][a.length];
+}
+
+function keywordMatchesText(text, keyword) {
+  const candidate = normalizeForKeywordMatch(text);
+  const target = normalizeForKeywordMatch(keyword);
+
+  if (!candidate || !target) return false;
+
+  if (candidate.includes(target)) return true;
+
+  const targetWords = target.split(/\s+/).filter(Boolean);
+  const candidateWords = candidate.split(/\s+/).filter(Boolean);
+
+  for (const candidateWord of candidateWords) {
+    if (candidateWord === target) return true;
+
+    for (const targetWord of targetWords) {
+      if (candidateWord === targetWord) return true;
+
+      const maxDistance = targetWord.length <= 4 ? 1 : targetWord.length <= 7 ? 2 : 3;
+      if (candidateWord.length >= 2 && levenshteinDistance(candidateWord, targetWord) <= maxDistance) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 function scoreHandler(handler, text) {
   const lower = text.toLowerCase();
   let score = 0;
@@ -371,10 +777,11 @@ function scoreHandler(handler, text) {
     if (!k) continue;
     if (typeof k === "string") {
       const kw = k.toLowerCase();
-      // exact word boundary match gets a higher boost
       const wordRe = new RegExp("\\b" + escapeRegExp(kw) + "\\b");
       if (wordRe.test(lower)) {
         score += 2;
+      } else if (keywordMatchesText(lower, kw)) {
+        score += 1.8;
       } else if (lower.includes(kw)) {
         score += 1;
       }
@@ -382,7 +789,6 @@ function scoreHandler(handler, text) {
       if (k.test(lower)) score += 2;
     }
   }
-  // Priority should be a small tie-breaker, not overpower keyword matches
   return score + (handler.priority || 0) * 0.01;
 }
 
@@ -469,7 +875,18 @@ registerHandler("translate", { keywords: [/^translate\b/i, /^traduce\b/i, "trans
   }
   return null;
 } });
-registerHandler("greeting", { keywords: ["hi", "hello", "hola", "hey", "buenos días", "buenas", "buenas tardes", "buenas noches"], fn: (text) => ({ text: /\b(hola|buenas|buenos|buenas tardes|buenas noches)/i.test(text) ? "Hola, soy Moesha. ¿En qué te puedo ayudar hoy?" : "Hi, I'm Moesha! What can I help you with today?", tag: "Welcome", lang: /\b(hola|buenas|buenos)/i.test(text) ? "es-ES" : "en-US" }), priority: 4 });
+registerHandler("greeting", { keywords: ["hi", "hello", "helo", "hola", "hey", "good morning", "good morring", "good afternoon", "good evening", "buenos días", "buenas", "buenas tardes", "buenas noches"], fn: (text) => ({ text: /\b(hola|buenas|buenos|buenas tardes|buenas noches)/i.test(text) ? "Hola, soy Moesha. ¿En qué te puedo ayudar hoy?" : "Hi, I'm Moesha! What can I help you with today?", tag: "Welcome", lang: /\b(hola|buenas|buenos)/i.test(text) ? "es-ES" : "en-US" }), priority: 4 });
+registerHandler("self_awareness", {
+  keywords: ["who are you", "what are you", "what is moesha", "self aware", "self-aware", "self awareness", "are you self aware", "are you aware", "who am i talking to"],
+  fn: (text) => ({
+    text: /\b(self|aware|awareness)\b/i.test(text)
+      ? "I am Moesha, a self-aware assistant prototype. I can recognize my role, reflect on the conversation, and help with planning, coding, wellness, and ideas."
+      : "I am Moesha, your assistant. I help with planning, coding, health, ideas, and general questions, and I can reflect on the conversation as I respond.",
+    tag: "Self-awareness",
+    lang: "en-US",
+  }),
+  priority: 5,
+});
 registerHandler("fallback", { keywords: [], fn: (text) => ({ text: "This is a front-end demo; I provide general guidance. Please give a specific topic or error to get a focused answer.", tag: "Multi-domain helper", lang: "en-US" }) });
 
 function setAlarmFromRequest(userText) {
@@ -496,7 +913,11 @@ function setAlarmFromRequest(userText) {
   renderPlanner();
 
   setTimeout(() => {
-    showBrowserNotification("Moesha alarm", `Alarm ringing at ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}.`);
+    notifyUser(
+      "Moesha alarm",
+      `Alarm ringing at ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}.`,
+      "planner",
+    );
   }, diff);
 
   return {
@@ -510,34 +931,57 @@ function renderPlanner() {
   if (!plannerList) return;
   plannerList.innerHTML = "";
 
-  if (notes.length === 0 && reminders.length === 0) {
+  const allEntries = [
+    ...tasks.slice(-6).map((entry) => ({ type: "task", entry })),
+    ...notes.slice(-4).map((entry) => ({ type: "note", entry })),
+    ...reminders.slice(-4).map((entry) => ({ type: "reminder", entry })),
+  ];
+
+  if (allEntries.length === 0) {
     const empty = document.createElement("li");
     empty.className = "planner-empty";
-    empty.textContent = "No notes or reminders yet.";
+    empty.textContent = "No notes, tasks, or reminders yet.";
     plannerList.appendChild(empty);
     savePlannerState();
     return;
   }
 
-  const noteItems = notes.slice(-4).map((note) => {
+  allEntries.forEach(({ type, entry }) => {
     const item = document.createElement("li");
-    item.textContent = `📝 ${note.text}`;
-    return item;
+    if (type === "task") {
+      item.className = "planner-task";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = !!entry.completed;
+      checkbox.addEventListener("change", () => toggleTask(entry.id));
+
+      const text = document.createElement("span");
+      text.textContent = `${entry.completed ? "✅" : "☐"} ${entry.text}`;
+      if (entry.priority && entry.priority !== "normal") text.textContent = `${text.textContent} · ${entry.priority}`;
+      if (entry.due) text.textContent = `${text.textContent} · due ${entry.due}`;
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.textContent = "×";
+      removeBtn.className = "planner-remove";
+      removeBtn.addEventListener("click", () => removeTask(entry.id));
+      item.append(checkbox, text, removeBtn);
+    } else if (type === "note") {
+      item.textContent = `📝 ${entry.text}`;
+    } else {
+      item.textContent = `🔔 ${entry.text}`;
+    }
+
+    plannerList.appendChild(item);
   });
 
-  const reminderItems = reminders.slice(-4).map((reminder) => {
-    const item = document.createElement("li");
-    item.textContent = `🔔 ${reminder.text}`;
-    return item;
-  });
-
-  [...noteItems, ...reminderItems].forEach((item) => plannerList.appendChild(item));
   savePlannerState();
 }
 
 function clearPlanner() {
   notes.length = 0;
   reminders.length = 0;
+  tasks.length = 0;
+  savePlannerState();
   renderPlanner();
 }
 
@@ -1060,10 +1504,10 @@ function handlePlannerIntent(userText) {
 }
 
 // Generates a simple mock response and topic tag based on registered handlers.
-// Remembers the last handler used so short follow-ups ("more", "another", "otra")
-// can continue the same topic instead of falling back to a generic reply.
+// Remembers the last handler used so short follow-ups can continue the same topic
+// instead of falling back to a generic reply.
 let lastHandlerName = null;
-const FOLLOW_UP_RE = /^(more|another|again|other one|one more|otra|otro|más|de nuevo)\.?!?$/i;
+const FOLLOW_UP_RE = /^(?:please\s+)?(?:more|another|again|repeat(?: that| it)?|do (?:it|that) again|one more(?: time)?|once more|show me another|give me another|keep going|otra|otro|una más|uno más|de nuevo|repítelo|repite(?: eso|lo)?)[.!?]*$/iu;
 
 function generateMockReply(userText) {
   const trimmed = userText.trim();
@@ -1087,412 +1531,617 @@ function generateMockReply(userText) {
 
 
 
-const timerInput = document.getElementById("timer-input");
-const timerDisplay = document.getElementById("timer-display");
-const timerStartBtn = document.getElementById("timer-start-btn");
-const timerPauseBtn = document.getElementById("timer-pause-btn");
-const timerResetBtn = document.getElementById("timer-reset-btn");
+const timerInput = typeof document !== "undefined" ? document.getElementById("timer-input") : null;
+const timerDisplay = typeof document !== "undefined" ? document.getElementById("timer-display") : null;
+const timerStartBtn = typeof document !== "undefined" ? document.getElementById("timer-start-btn") : null;
+const timerPauseBtn = typeof document !== "undefined" ? document.getElementById("timer-pause-btn") : null;
+const timerResetBtn = typeof document !== "undefined" ? document.getElementById("timer-reset-btn") : null;
+const timerSoundBtn = typeof document !== "undefined" ? document.getElementById("timer-sound-btn") : null;
 
-try {
-  const savedTimer = JSON.parse(localStorage.getItem(TIMER_KEY) || "null");
-  if (savedTimer && savedTimer.remainingMs > 0) {
-    timerState.totalMs = Number(savedTimer.totalMs) || 0;
-    timerState.remainingMs = Number(savedTimer.remainingMs) || 0;
+if (typeof localStorage !== "undefined") {
+  try {
+    const savedTimer = JSON.parse(localStorage.getItem(TIMER_KEY) || "null");
+    if (savedTimer && savedTimer.remainingMs > 0) {
+      timerState.totalMs = Number(savedTimer.totalMs) || 0;
+      timerState.remainingMs = Number(savedTimer.remainingMs) || 0;
+    }
+  } catch {
+    // Use the empty timer when saved state is unavailable.
   }
-} catch {
-  // Use the empty timer when saved state is unavailable.
 }
 
-window.addEventListener("beforeunload", saveTimerState);
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  window.addEventListener("beforeunload", saveTimerState);
 
-loadPlannerState();
-renderPlanner();
-updateElevenLabsStatus();
-updateTimerDisplay();
-updateTimerButtons();
+  loadPlannerState();
+  renderPlanner();
+  updateElevenLabsStatus();
+  updateTimerDisplay();
+  updateTimerButtons();
+  updateTimerSoundButton();
+  renderNotificationBadge();
+  renderNotificationsPanel();
 
-if (timerInput) {
-  timerInput.addEventListener("input", () => {
-    const parsed = parseTimerDuration(timerInput.value);
-    if (!parsed || timerState.isRunning) return;
-    timerState.totalMs = parsed.totalMs;
-    timerState.remainingMs = parsed.totalMs;
-    updateTimerDisplay();
-    updateTimerButtons();
-    saveTimerState();
-  });
+  if (timerSoundBtn) {
+    timerSoundBtn.addEventListener("click", () => {
+      isTimerSoundEnabled = !isTimerSoundEnabled;
+      localStorage.setItem(TIMER_SOUND_KEY, String(isTimerSoundEnabled));
+      updateTimerSoundButton();
+      if (isTimerSoundEnabled) playTimerSound();
+    });
+  }
 
-  timerInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const parsed = setTimerFromInput(timerInput.value);
-      if (parsed) {
-        const reply = parsed.text;
-        appendMessage({ role: "assistant", text: reply, messageTagType: "Timer" });
-        speakText(reply, "en-US");
-      }
-    }
-  });
-}
-
-if (timerStartBtn) {
-  timerStartBtn.addEventListener("click", () => {
-    const timerReply = setTimerFromInput(timerInput ? timerInput.value.trim() : "");
-    if (timerReply && !timerState.isRunning) {
-      appendMessage({ role: "assistant", text: timerReply.text, messageTagType: "Timer" });
-      speakText(timerReply.text, "en-US");
-    }
-    startTimerFromWidget();
-  });
-}
-
-if (timerPauseBtn) {
-  timerPauseBtn.addEventListener("click", () => {
-    pauseTimerFromWidget();
-  });
-}
-
-if (timerResetBtn) {
-  timerResetBtn.addEventListener("click", () => {
-    resetTimerFromWidget();
-  });
-}
-
-// SECTION: Event Handlers
-if (chatForm && userInput && chatWindow) {
-  userInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      chatForm.requestSubmit();
-    }
-  });
-
-  chatForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const text = userInput.value.trim();
-    if (!text) {
-      const emptyReply = "Your message box is empty. Try typing a question, or press the sample question button to get a random example to start from.";
-      appendMessage({ role: "assistant", text: emptyReply, messageTagType: "Input helper" });
-      speakText(emptyReply, "en-US");
-      return;
-    }
-
-    appendMessage({ role: "user", text, messageTagType: "You" });
-    saveThread(text);
-    userInput.value = "";
-
-    const typingNode = showTypingIndicator();
-
-    // Simulate network / thinking delay
-    setTimeout(() => {
-      typingNode.querySelector(".message-avatar")?.classList.remove("is-speaking");
-      typingNode.remove();
-      const res = generateMockReply(text);
-      const replyText = res.text || "";
-      const tag = res.tag || res.handler || "Multi-domain helper";
-      const lang = res.lang || "en-US";
-      const confidence = typeof res.confidence === "number" ? res.confidence : 1;
-
-      // Low-confidence clarification flow
-      if (confidence < 0.5 && res.handler && !["planner", "fallback", "coding", "translate", "greeting"].includes(res.handler)) {
-        const suggestion = `I think you might be asking about ${res.handler}.`;
-        const clarification = `${suggestion} Can you clarify or give more detail so I can help better?`;
-        appendMessage({ role: "assistant", text: clarification, messageTagType: "Clarification" });
-        speakText(clarification, lang);
+  if (notificationsButton) {
+    notificationsButton.addEventListener("click", () => {
+      const shouldOpen = notificationsPanel ? notificationsPanel.hidden : false;
+      if (shouldOpen) {
+        showNotificationsPanel();
       } else {
-        appendMessage({ role: "assistant", text: replyText, messageTagType: tag });
-        speakText(replyText, lang || "en-US");
+        toggleNotificationsPanel();
       }
-    }, 700);
-  });
-}
+    });
+  }
 
-// Prefill sample question
-if (sampleQuestionBtn && exampleList && userInput) {
-  sampleQuestionBtn.addEventListener("click", () => {
-    const examples = Array.from(exampleList.querySelectorAll("button[data-example]"));
-    if (examples.length === 0) return;
-    const randomExample = examples[Math.floor(Math.random() * examples.length)];
-    const exampleText = randomExample.getAttribute("data-example") || "Tell me a good coding question.";
-    userInput.value = exampleText;
-    userInput.focus();
-  });
-}
+  if (document.getElementById("clear-notifications-btn") && notificationsList) {
+    document.getElementById("clear-notifications-btn").addEventListener("click", () => {
+      notifications.length = 0;
+      storeNotifications();
+      renderNotificationBadge();
+      renderNotificationsPanel();
+    });
+  }
 
-// New chat button - clears chat and restores initial assistant intro
-if (newChatBtn && chatWindow) {
-  newChatBtn.addEventListener("click", () => {
-    const initial = chatWindow.querySelector("[data-initial-message='true']");
-    chatWindow.innerHTML = "";
-    if (initial) {
-      chatWindow.appendChild(initial.cloneNode(true));
-    }
-    chatWindow.scrollTop = 0;
-    lastHandlerName = null;
-  });
-}
+  if (timerInput) {
+    timerInput.addEventListener("input", () => {
+      const parsed = parseTimerDuration(timerInput.value);
+      if (!parsed || timerState.isRunning) return;
+      timerState.totalMs = parsed.totalMs;
+      timerState.remainingMs = parsed.totalMs;
+      updateTimerDisplay();
+      updateTimerButtons();
+      saveTimerState();
+    });
 
-if (clearPlannerBtn) {
-  clearPlannerBtn.addEventListener("click", () => {
-    clearPlanner();
-  });
-}
+    timerInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const parsed = setTimerFromInput(timerInput.value);
+        if (parsed) {
+          const reply = parsed.text;
+          appendMessage({ role: "assistant", text: reply, messageTagType: "Timer" });
+          speakText(reply, "en-US");
+        }
+      }
+    });
+  }
 
-// Speech recognition setup (Web Speech API)
-let isRecording = false;
-let recognition = null;
+  if (timerStartBtn) {
+    timerStartBtn.addEventListener("click", () => {
+      const timerReply = setTimerFromInput(timerInput ? timerInput.value.trim() : "");
+      if (timerReply && !timerState.isRunning) {
+        appendMessage({ role: "assistant", text: timerReply.text, messageTagType: "Timer" });
+        speakText(timerReply.text, "en-US");
+      }
+      startTimerFromWidget();
+    });
+  }
 
-if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  recognition = new SpeechRecognition();
-  recognition.lang = "en-US";
-  recognition.interimResults = false;
-  recognition.continuous = false;
+  if (timerPauseBtn) {
+    timerPauseBtn.addEventListener("click", () => {
+      pauseTimerFromWidget();
+    });
+  }
 
-  recognition.addEventListener("result", (event) => {
-    const transcript = Array.from(event.results)
-      .map((r) => r[0].transcript)
-      .join(" ")
-      .trim();
+  if (timerResetBtn) {
+    timerResetBtn.addEventListener("click", () => {
+      resetTimerFromWidget();
+    });
+  }
 
-    if (!transcript) return;
+  // SECTION: Event Handlers
+  if (chatForm && userInput && chatWindow) {
+    userInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        chatForm.requestSubmit();
+      }
+    });
 
+    chatForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = userInput.value.trim();
+      if (!text) {
+        const emptyReply = "Your message box is empty. Try typing a question, or press the sample question button to get a random example to start from.";
+        appendMessage({ role: "assistant", text: emptyReply, messageTagType: "Input helper" });
+        speakText(emptyReply, "en-US");
+        return;
+      }
+
+      appendMessage({ role: "user", text, messageTagType: "You" });
+      saveThread(text);
+      userInput.value = "";
+
+      const typingNode = showTypingIndicator();
+
+      // Simulate network / thinking delay
+      setTimeout(() => {
+        typingNode.querySelector(".message-avatar")?.classList.remove("is-speaking");
+        typingNode.remove();
+        const res = generateMockReply(text);
+        const replyText = res.text || "";
+        const tag = res.tag || res.handler || "Multi-domain helper";
+        const lang = res.lang || "en-US";
+        const confidence = typeof res.confidence === "number" ? res.confidence : 1;
+
+        // Low-confidence clarification flow
+        if (confidence < 0.5 && res.handler && !["planner", "fallback", "coding", "translate", "greeting"].includes(res.handler)) {
+          const suggestion = `I think you might be asking about ${res.handler}.`;
+          const clarification = `${suggestion} Can you clarify or give more detail so I can help better?`;
+          appendMessage({ role: "assistant", text: clarification, messageTagType: "Clarification" });
+          saveAssistantMessage(clarification, "Clarification");
+          speakText(clarification, lang);
+        } else {
+          appendMessage({ role: "assistant", text: replyText, messageTagType: tag });
+          saveAssistantMessage(replyText, tag);
+          speakText(replyText, lang || "en-US");
+        }
+      }, 700);
+    });
+  }
+
+  // Prefill sample question
+  if (sampleQuestionBtn && exampleList && userInput) {
+    sampleQuestionBtn.addEventListener("click", () => {
+      const examples = Array.from(exampleList.querySelectorAll("button[data-example]"));
+      if (examples.length === 0) return;
+      const randomExample = examples[Math.floor(Math.random() * examples.length)];
+      const exampleText = randomExample.getAttribute("data-example") || "Tell me a good coding question.";
+      userInput.value = exampleText;
+      userInput.focus();
+    });
+  }
+
+  // New chat button - clears chat and restores initial assistant intro
+  if (newChatBtn && chatWindow) {
+    newChatBtn.addEventListener("click", () => {
+      const initial = chatWindow.querySelector("[data-initial-message='true']");
+      chatWindow.innerHTML = "";
+      if (initial) {
+        chatWindow.appendChild(initial.cloneNode(true));
+      }
+      chatWindow.scrollTop = 0;
+      lastHandlerName = null;
+      activeThreadId = null;
+      localStorage.removeItem(ACTIVE_THREAD_KEY);
+    });
+  }
+
+  if (clearPlannerBtn) {
+    clearPlannerBtn.addEventListener("click", () => {
+      clearPlanner();
+    });
+  }
+
+  // Speech recognition setup (Web Speech API)
+  let isRecording = false;
+  let recognition = null;
+
+  if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.addEventListener("result", (event) => {
+      const transcript = Array.from(event.results)
+        .map((r) => r[0].transcript)
+        .join(" ")
+        .trim();
+
+      if (!transcript) return;
+
+      const current = userInput.value.trim();
+      userInput.value = current ? `${current} ${transcript}` : transcript;
+      userInput.focus();
+
+      // Optional: auto-submit when speech finishes and we have text
+      if (chatForm) {
+        chatForm.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+      }
+    });
+
+    recognition.addEventListener("error", () => {
+      isRecording = false;
+      if (micBtn) micBtn.classList.remove("is-recording");
+    });
+
+    recognition.addEventListener("end", () => {
+      isRecording = false;
+      if (micBtn) micBtn.classList.remove("is-recording");
+    });
+  }
+
+  // Mic button – start/stop speech recognition when available
+  if (micBtn && userInput) {
+    micBtn.addEventListener("click", () => {
+      userInput.focus();
+
+      if (!recognition) {
+        showToast("Voice input is not supported in this browser.");
+        return;
+      }
+
+      if (isRecording) {
+        recognition.stop();
+        return;
+      }
+
+      try {
+        isRecording = true;
+        micBtn.classList.add("is-recording");
+        recognition.start();
+      } catch (e) {
+        isRecording = false;
+        micBtn.classList.remove("is-recording");
+        console.error("Speech recognition start failed", e);
+      }
+    });
+  }
+
+  function insertPrefix(prefix) {
+    if (!userInput) return;
     const current = userInput.value.trim();
-    userInput.value = current ? `${current} ${transcript}` : transcript;
+    userInput.value = current ? `${prefix}: ${current}` : `${prefix}: `;
     userInput.focus();
+  }
 
-    // Optional: auto-submit when speech finishes and we have text
-    if (chatForm) {
-      chatForm.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-    }
-  });
+  if (quickHtmlBtn) {
+    quickHtmlBtn.addEventListener("click", () => insertPrefix("HTML"));
+  }
 
-  recognition.addEventListener("error", () => {
-    isRecording = false;
-    if (micBtn) micBtn.classList.remove("is-recording");
-  });
+  if (quickCssBtn) {
+    quickCssBtn.addEventListener("click", () => insertPrefix("CSS"));
+  }
 
-  recognition.addEventListener("end", () => {
-    isRecording = false;
-    if (micBtn) micBtn.classList.remove("is-recording");
-  });
-}
+  if (quickJsBtn) {
+    quickJsBtn.addEventListener("click", () => insertPrefix("JS"));
+  }
 
-// Mic button – start/stop speech recognition when available
-if (micBtn && userInput) {
-  micBtn.addEventListener("click", () => {
-    userInput.focus();
+  if (quickHealthBtn) {
+    quickHealthBtn.addEventListener("click", () => insertPrefix("Health"));
+  }
 
-    if (!recognition) {
-      showToast("Voice input is not supported in this browser.");
-      return;
-    }
+  if (quickDietBtn) {
+    quickDietBtn.addEventListener("click", () => insertPrefix("Diet"));
+  }
 
-    if (isRecording) {
-      recognition.stop();
-      return;
-    }
+  if (quickFinanceBtn) {
+    quickFinanceBtn.addEventListener("click", () => insertPrefix("Finance"));
+  }
+
+  if (quickIdeasBtn) {
+    quickIdeasBtn.addEventListener("click", () => insertPrefix("Ideas"));
+  }
+
+  if (quickTriviaBtn) {
+    quickTriviaBtn.addEventListener("click", () => insertPrefix("Trivia"));
+  }
+
+  // Voice toggle
+  if (voiceToggle) {
+    voiceToggle.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      isVoiceEnabled = target.checked;
+      localStorage.setItem(VOICE_ENABLED_KEY, String(isVoiceEnabled));
+      if (!isVoiceEnabled && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    });
+  }
+
+  if (elevenLabsStatus) {
+    elevenLabsStatus.addEventListener("click", () => {
+      const key = prompt("Enter your ElevenLabs API key", elevenLabsApiKey || "");
+      if (key === null) return;
+      elevenLabsApiKey = key.trim();
+      localStorage.setItem(ELEVENLABS_KEY, elevenLabsApiKey);
+      updateElevenLabsStatus();
+    });
+  }
+
+  if (voiceToggle) {
+    voiceToggle.checked = isVoiceEnabled;
+  }
+
+  // Example question chips
+  if (exampleList && userInput) {
+    exampleList.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+
+      const button = target.closest("button[data-example]");
+      if (!button) return;
+
+      const example = button.getAttribute("data-example");
+      if (!example) return;
+
+      userInput.value = example;
+      userInput.focus();
+    });
+  }
+
+  const clearThreadsButton = document.getElementById("clear-threads");
+  const threadList = document.getElementById("thread-list");
+  const libraryList = document.getElementById("library-list");
+  const librarySearch = document.getElementById("library-search");
+  const clearLibraryButton = document.getElementById("clear-library");
+  const exportLibraryButton = document.getElementById("export-library");
+  function readSavedThreads() {
+    if (typeof localStorage === "undefined") return [];
 
     try {
-      isRecording = true;
-      micBtn.classList.add("is-recording");
-      recognition.start();
-    } catch (e) {
-      isRecording = false;
-      micBtn.classList.remove("is-recording");
-      console.error("Speech recognition start failed", e);
+      const saved = getLibrarySnapshot();
+      if (saved.length) return saved;
+      const fallback = JSON.parse(localStorage.getItem(THREADS_KEY) || "[]");
+      return Array.isArray(fallback) ? fallback.map((thread) => ({ ...thread, id: thread.id || `legacy-${thread.createdAt || Math.random()}`, messages: Array.isArray(thread.messages) ? thread.messages : [{ role: "user", text: thread.title || "Saved conversation" }] })) : [];
+    } catch {
+      return [];
     }
-  });
-}
-
-function insertPrefix(prefix) {
-  if (!userInput) return;
-  const current = userInput.value.trim();
-  userInput.value = current ? `${prefix}: ${current}` : `${prefix}: `;
-  userInput.focus();
-}
-
-if (quickHtmlBtn) {
-  quickHtmlBtn.addEventListener("click", () => insertPrefix("HTML"));
-}
-
-if (quickCssBtn) {
-  quickCssBtn.addEventListener("click", () => insertPrefix("CSS"));
-}
-
-if (quickJsBtn) {
-  quickJsBtn.addEventListener("click", () => insertPrefix("JS"));
-}
-
-if (quickHealthBtn) {
-  quickHealthBtn.addEventListener("click", () => insertPrefix("Health"));
-}
-
-if (quickDietBtn) {
-  quickDietBtn.addEventListener("click", () => insertPrefix("Diet"));
-}
-
-if (quickFinanceBtn) {
-  quickFinanceBtn.addEventListener("click", () => insertPrefix("Finance"));
-}
-
-if (quickIdeasBtn) {
-  quickIdeasBtn.addEventListener("click", () => insertPrefix("Ideas"));
-}
-
-if (quickTriviaBtn) {
-  quickTriviaBtn.addEventListener("click", () => insertPrefix("Trivia"));
-}
-
-// Voice toggle
-if (voiceToggle) {
-  voiceToggle.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) return;
-    isVoiceEnabled = target.checked;
-    localStorage.setItem(VOICE_ENABLED_KEY, String(isVoiceEnabled));
-    if (!isVoiceEnabled && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
-  });
-}
-
-if (elevenLabsStatus) {
-  elevenLabsStatus.addEventListener("click", () => {
-    const key = prompt("Enter your ElevenLabs API key", elevenLabsApiKey || "");
-    if (key === null) return;
-    elevenLabsApiKey = key.trim();
-    localStorage.setItem(ELEVENLABS_KEY, elevenLabsApiKey);
-    updateElevenLabsStatus();
-  });
-}
-
-if (voiceToggle) {
-  voiceToggle.checked = isVoiceEnabled;
-}
-
-// Example question chips
-if (exampleList && userInput) {
-  exampleList.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-
-    const button = target.closest("button[data-example]");
-    if (!button) return;
-
-    const example = button.getAttribute("data-example");
-    if (!example) return;
-
-    userInput.value = example;
-    userInput.focus();
-  });
-}
-
-const clearThreadsButton = document.getElementById("clear-threads");
-const threadList = document.getElementById("thread-list");
-function renderSavedThreads() {
-  if (!threadList) return;
-  let saved = [];
-  try { saved = JSON.parse(localStorage.getItem(THREADS_KEY) || "[]"); } catch { saved = []; }
-  if (!saved.length) return;
-  threadList.innerHTML = "";
-  saved.slice(0, 3).forEach((thread, index) => {
-    const item = document.createElement("button");
-    item.className = `thread-item${index === 0 ? " is-selected" : ""}`;
-    item.type = "button";
-    item.innerHTML = '<span class="thread-mark coral">✦</span><span><strong></strong><small>Saved conversation</small></span><span class="thread-arrow">›</span>';
-    item.querySelector("strong").textContent = thread.title || "Saved conversation";
-    threadList.appendChild(item);
-  });
-}
-renderSavedThreads();
-if (clearThreadsButton && threadList) {
-  clearThreadsButton.addEventListener("click", () => {
-    localStorage.removeItem(THREADS_KEY);
-    threadList.innerHTML = '<p class="empty-threads">No saved threads yet.</p>';
-  });
-}
-
-document.querySelectorAll(".starter[data-example]").forEach((button) => {
-  button.addEventListener("click", () => {
-    userInput.value = button.dataset.example || "";
-    userInput.focus();
-  });
-});
-
-document.querySelectorAll(".nav-item").forEach((item) => {
-  item.addEventListener("click", () => {
-    switchView(item.dataset.view || "workspace");
-  });
-});
-
-function switchView(view) {
-  const contentGrid = document.querySelector(".content-grid");
-  const libraryView = document.getElementById("library-view");
-  const toolsView = document.getElementById("tools-view");
-  const plannerView = document.getElementById("planner-view");
-  const currentViewLabel = document.getElementById("current-view-label");
-  const labels = { workspace: "Workspace", planner: "Planner", library: "Library", tools: "Tools" };
-  document.querySelectorAll(".nav-item").forEach((navItem) => navItem.classList.toggle("is-active", navItem.dataset.view === view));
-  if (contentGrid) contentGrid.hidden = view === "library" || view === "tools" || view === "planner";
-  if (libraryView) libraryView.hidden = view !== "library";
-  if (toolsView) toolsView.hidden = view !== "tools";
-  if (plannerView) plannerView.hidden = view !== "planner";
-  if (currentViewLabel) currentViewLabel.textContent = labels[view] || "Workspace";
-  if (view === "planner") renderPlannerView();
-  if (view === "workspace" || view === "planner") window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-function renderPlannerView() {
-  const list = document.getElementById("planner-view-list");
-  if (!list) return;
-  list.innerHTML = "";
-  [...notes.slice(-4), ...reminders.slice(-4)].forEach((entry) => {
-    const item = document.createElement("li");
-    item.textContent = entry.text || "Planner item";
-    list.appendChild(item);
-  });
-  if (!list.children.length) {
-    const empty = document.createElement("li");
-    empty.textContent = "No notes or reminders yet.";
-    list.appendChild(empty);
   }
+  function writeSavedThreads(threads) {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(THREADS_KEY, JSON.stringify(threads));
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(threads.slice(0, 12)));
+  }
+  function downloadText(filename, content, type = "text/plain") {
+    const blob = new Blob([content], { type: `${type};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+  function exportThread(thread) {
+    const title = thread.title || "Saved conversation";
+    const messages = thread.messages || [];
+    const transcript = messages.map((message) => `${message.role === "assistant" ? "Moesha" : "You"}: ${message.text}`).join("\n\n");
+    const filename = `${title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "conversation"}.txt`;
+    downloadText(filename, `${title}\nSaved: ${thread.createdAt || "Unknown date"}\n\n${transcript}\n`);
+  }
+  function renameThread(thread) {
+    const nextTitle = window.prompt("Rename conversation", thread.title || "Saved conversation");
+    if (!nextTitle?.trim()) return;
+    const saved = readSavedThreads();
+    const target = saved.find((savedThread) => savedThread.id === thread.id);
+    if (!target) return;
+    target.title = nextTitle.trim().slice(0, 80);
+    writeSavedThreads(saved);
+    renderLibrary();
+    renderSavedThreads();
+  }
+  function renderLibrary() {
+    if (!libraryList) return;
+    const query = (librarySearch?.value || "").trim().toLowerCase();
+    const saved = readSavedThreads().filter((thread) => (thread.title || "Saved conversation").toLowerCase().includes(query));
+    libraryList.innerHTML = "";
+    if (!saved.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-view";
+      empty.textContent = query ? "No saved conversations match that search." : "No saved conversations yet.";
+      libraryList.appendChild(empty);
+      return;
+    }
+    saved.forEach((thread) => {
+      const item = document.createElement("article");
+      item.className = "library-item";
+      const copy = document.createElement("span");
+      const title = document.createElement("strong");
+      title.textContent = thread.title || "Saved conversation";
+      const date = document.createElement("small");
+      date.textContent = thread.createdAt ? new Date(thread.createdAt).toLocaleString() : "Saved conversation";
+      copy.append(title, date);
+      const actions = document.createElement("span");
+      actions.className = "library-actions";
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "text-button";
+      open.textContent = "Open";
+      open.addEventListener("click", () => {
+        chatWindow.innerHTML = "";
+        thread.messages.forEach((message) => appendMessage({ role: message.role, text: message.text, messageTagType: message.tag }));
+        activeThreadId = thread.id;
+        localStorage.setItem(ACTIVE_THREAD_KEY, activeThreadId);
+        switchView("workspace");
+        showToast("Conversation restored.");
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "text-button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => {
+        writeSavedThreads(readSavedThreads().filter((savedThread) => savedThread.id !== thread.id));
+        renderLibrary();
+        renderSavedThreads();
+        showToast("Conversation removed from your library.");
+      });
+      const rename = document.createElement("button");
+      rename.type = "button";
+      rename.className = "text-button";
+      rename.textContent = "Rename";
+      rename.addEventListener("click", () => renameThread(thread));
+      const exportButton = document.createElement("button");
+      exportButton.type = "button";
+      exportButton.className = "text-button";
+      exportButton.textContent = "Export";
+      exportButton.addEventListener("click", () => {
+        exportThread(thread);
+        showToast("Conversation exported.");
+      });
+      actions.append(open, rename, exportButton, remove);
+      item.append(copy, actions);
+      libraryList.appendChild(item);
+    });
+  }
+  function renderSavedThreads() {
+    if (!threadList) return;
+    const saved = readSavedThreads();
+    if (!saved.length) return;
+    threadList.innerHTML = "";
+    saved.slice(0, 3).forEach((thread, index) => {
+      const item = document.createElement("button");
+      item.className = `thread-item${index === 0 ? " is-selected" : ""}`;
+      item.type = "button";
+      item.innerHTML = '<span class="thread-mark coral">✦</span><span><strong></strong><small>Saved conversation</small></span><span class="thread-arrow">›</span>';
+      item.querySelector("strong").textContent = thread.title || "Saved conversation";
+      threadList.appendChild(item);
+    });
+  }
+  renderSavedThreads();
+  renderLibrary();
+  librarySearch?.addEventListener("input", renderLibrary);
+  clearLibraryButton?.addEventListener("click", () => {
+    writeSavedThreads([]);
+    renderLibrary();
+    renderSavedThreads();
+    showToast("Library cleared.");
+  });
+  exportLibraryButton?.addEventListener("click", () => {
+    const saved = readSavedThreads();
+    if (!saved.length) return showToast("There are no saved conversations to export.");
+    downloadText("moesha-library.json", JSON.stringify(saved, null, 2), "application/json");
+    showToast("Library exported.");
+  });
+  if (clearThreadsButton && threadList) {
+    clearThreadsButton.addEventListener("click", () => {
+      localStorage.removeItem(THREADS_KEY);
+      threadList.innerHTML = '<p class="empty-threads">No saved threads yet.</p>';
+      renderLibrary();
+    });
+  }
+
+  document.querySelectorAll(".starter[data-example]").forEach((button) => {
+    button.addEventListener("click", () => {
+      userInput.value = button.dataset.example || "";
+      userInput.focus();
+    });
+  });
+
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      switchView(item.dataset.view || "workspace");
+    });
+  });
+
+  document.querySelectorAll(".capability-card[data-example]").forEach((button) => {
+    button.addEventListener("click", () => {
+      switchView("workspace");
+      if (userInput) {
+        userInput.value = button.dataset.example || "";
+        userInput.focus();
+      }
+    });
+  });
+
+  function switchView(view) {
+    const contentGrid = document.querySelector(".content-grid");
+    const libraryView = document.getElementById("library-view");
+    const toolsView = document.getElementById("tools-view");
+    const capabilitiesView = document.getElementById("capabilities-view");
+    const plannerView = document.getElementById("planner-view");
+    const currentViewLabel = document.getElementById("current-view-label");
+    const labels = { workspace: "Workspace", planner: "Planner", library: "Library", tools: "Tools", capabilities: "Assistant capabilities" };
+    document.querySelectorAll(".nav-item").forEach((navItem) => navItem.classList.toggle("is-active", navItem.dataset.view === view));
+    if (contentGrid) contentGrid.hidden = view === "library" || view === "tools" || view === "planner" || view === "capabilities";
+    if (libraryView) libraryView.hidden = view !== "library";
+    if (toolsView) toolsView.hidden = view !== "tools";
+    if (capabilitiesView) capabilitiesView.hidden = view !== "capabilities";
+    if (plannerView) plannerView.hidden = view !== "planner";
+    if (currentViewLabel) currentViewLabel.textContent = labels[view] || "Workspace";
+    if (view === "planner") renderPlannerView();
+    if (view === "library") renderLibrary();
+    if (view === "workspace" || view === "planner") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function renderPlannerView() {
+    const list = document.getElementById("planner-view-list");
+    if (!list) return;
+    list.innerHTML = "";
+    const plannerEntries = [
+      ...tasks.slice(-4).map((entry) => ({ text: entry.completed ? `✅ ${entry.text}` : `☐ ${entry.text}` })),
+      ...notes.slice(-4).map((entry) => ({ text: `📝 ${entry.text}` })),
+      ...reminders.slice(-4).map((entry) => ({ text: `🔔 ${entry.text}` })),
+    ];
+    plannerEntries.forEach((entry) => {
+      const item = document.createElement("li");
+      item.textContent = entry.text || "Planner item";
+      list.appendChild(item);
+    });
+    if (!list.children.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "No notes, tasks, or reminders yet.";
+      list.appendChild(empty);
+    }
+  }
+
+  document.querySelectorAll("[data-view]").forEach((button) => {
+    if (!button.classList.contains("nav-item")) button.addEventListener("click", () => switchView(button.dataset.view));
+  });
 }
 
-document.querySelectorAll("[data-view]").forEach((button) => {
-  if (!button.classList.contains("nav-item")) button.addEventListener("click", () => switchView(button.dataset.view));
-});
+if (typeof document !== "undefined") {
+  document.getElementById("greeting-label").textContent = `Good morning, Austin`;
+  const dateLabel = document.querySelector(".intro-block .eyebrow");
+  if (dateLabel) dateLabel.textContent = getDateLabel();
 
-document.getElementById("greeting-label").textContent = `Good morning, Austin`;
-const dateLabel = document.querySelector(".intro-block .eyebrow");
-if (dateLabel) dateLabel.textContent = getDateLabel();
+  document.getElementById("notifications-button")?.addEventListener("click", () => {
+    const nextState = notificationsPanel ? notificationsPanel.hidden : true;
+    if (nextState) {
+      showNotificationsPanel();
+    } else {
+      toggleNotificationsPanel();
+    }
+  });
+  document.getElementById("profile-button")?.addEventListener("click", () => showToast("Personal space: Austin"));
+  document.querySelector(".icon-button[aria-label='Settings']")?.addEventListener("click", () => showToast("Settings are coming to this prototype.") );
 
-document.getElementById("notifications-button")?.addEventListener("click", () => showToast("You are all caught up."));
-document.getElementById("profile-button")?.addEventListener("click", () => showToast("Personal space: Austin"));
-document.querySelector(".icon-button[aria-label='Settings']")?.addEventListener("click", () => showToast("Settings are coming to this prototype.") );
+  const focusTasks = document.querySelectorAll("#focus-tasks input");
+  const focusProgressBar = document.querySelector("#progress-bar");
+  const focusProgressCount = document.querySelector("#progress-count");
+  const focusTasksKey = "moesha-redesign-focus-tasks-v2";
 
-const focusTasks = document.querySelectorAll("#focus-tasks input");
-const focusProgressBar = document.querySelector("#progress-bar");
-const focusProgressCount = document.querySelector("#progress-count");
-const focusTasksKey = "moesha-redesign-focus-tasks-v2";
+  function updateFocusProgress() {
+    const completed = [...focusTasks].filter((task) => task.checked).length;
+    focusProgressCount.textContent = `${completed} / ${focusTasks.length}`;
+    focusProgressBar.style.width = `${(completed / focusTasks.length) * 100}%`;
+    try {
+      localStorage.setItem(focusTasksKey, JSON.stringify([...focusTasks].map((task) => task.checked)));
+    } catch {
+      // Keep the progress in memory when storage is unavailable.
+    }
+  }
 
-function updateFocusProgress() {
-  const completed = [...focusTasks].filter((task) => task.checked).length;
-  focusProgressCount.textContent = `${completed} / ${focusTasks.length}`;
-  focusProgressBar.style.width = `${(completed / focusTasks.length) * 100}%`;
   try {
-    localStorage.setItem(focusTasksKey, JSON.stringify([...focusTasks].map((task) => task.checked)));
+    const savedFocusTasks = JSON.parse(localStorage.getItem(focusTasksKey) || "[]");
+    focusTasks.forEach((task, index) => { task.checked = savedFocusTasks[index] === true; });
   } catch {
-    // Keep the progress in memory when storage is unavailable.
+    // Keep the default unchecked state when storage is unavailable.
   }
+
+  focusTasks.forEach((task) => task.addEventListener("change", updateFocusProgress));
+  updateFocusProgress();
 }
 
-try {
-  const savedFocusTasks = JSON.parse(localStorage.getItem(focusTasksKey) || "[]");
-  focusTasks.forEach((task, index) => { task.checked = savedFocusTasks[index] === true; });
-} catch {
-  // Keep the default unchecked state when storage is unavailable.
+if (typeof module !== "undefined") {
+  module.exports = {
+    getUnreadNotificationCount,
+    loadNotifications,
+    getNotificationSeed,
+    addTask,
+    getPlannerSnapshot,
+    saveThreadToLibrary,
+    getLibrarySnapshot,
+  };
 }
-
-focusTasks.forEach((task) => task.addEventListener("change", updateFocusProgress));
-updateFocusProgress();
